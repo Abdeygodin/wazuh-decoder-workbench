@@ -281,6 +281,7 @@
       <section class="card" id="fmtCard" hidden>
         <h2>2 · What was detected</h2>
         <div class="fmt" id="fmtInfo"></div>
+        <div class="note warn" id="captureNote" hidden></div>
       </section>
 
       <section class="card" id="fieldsCard" hidden>
@@ -588,6 +589,8 @@ function tokenizePlain(msg){
       let start = det.group ? m.index + m[0].indexOf(value) : m.index;
       let end = start + value.length;
       if (det.re.lastIndex === m.index) det.re.lastIndex++;
+      /* "user information", "user name" etc. — not actual usernames */
+      if (det.type === "user" && /^(?:information|info|name|data|id|found|unknown|null|not|is|was|does|account)$/i.test(value)) continue;
       let free = true;
       for (let i = start; i < end; i++) if (taken[i]){ free = false; break; }
       if (!free) continue;
@@ -1537,6 +1540,28 @@ function analyze(){
     document.getElementById("decName").value = "custom-" + (v || "cef");
   } else {
     document.getElementById("decName").value = "custom-app";
+  }
+
+  /* packet-capture input detection: tcpdump headers / syslog embedded after binary bytes */
+  const capNote = document.getElementById("captureNote");
+  const TCPDUMP_RE = /^\d{2}:\d{2}:\d{2}\.\d{3,}\s+\S+\s+(?:In|Out)\s+IP6?\s/;
+  const embeddedRe = new RegExp("(?:" + TS_MONTHS + ")\\s+\\d{1,2}\\s\\d{2}:\\d{2}:\\d{2}\\s\\S[\\s\\S]*$");
+  const looksCapture = TCPDUMP_RE.test(lines[0]);
+  const extracted = lines.map(l => { const m = l.match(embeddedRe); return (m && m.index > 0) ? m[0] : null; }).filter(Boolean);
+  if (looksCapture || extracted.length){
+    let html = "⚠ This looks like raw packet-capture output (tcpdump), not a log line. Wazuh never sees capture headers or packet bytes — decoders parse the syslog message carried <i>inside</i> the packet. Grab logs the way Wazuh sees them, e.g. from <code>/var/ossec/logs/archives/archives.log</code> (with <code>&lt;logall&gt;yes&lt;/logall&gt;</code>).";
+    if (extracted.length){
+      html += `<br><button class="ghost" id="useExtracted" style="margin-top:8px">Found ${extracted.length} embedded syslog message(s) — analyze them instead</button>`;
+    }
+    capNote.innerHTML = html;
+    capNote.hidden = false;
+    const btn = document.getElementById("useExtracted");
+    if (btn) btn.addEventListener("click", () => {
+      document.getElementById("logInput").value = extracted.join("\n");
+      analyze();
+    });
+  } else {
+    capNote.hidden = true;
   }
 
   state.analyzed = true;
