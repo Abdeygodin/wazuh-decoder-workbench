@@ -356,7 +356,10 @@ const DETECTORS = [
   { type:"sha1",  re:/\b[0-9a-f]{40}\b/gi },
   { type:"md5",   re:/\b[0-9a-f]{32}\b/gi },
   { type:"uuid",  re:/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi },
-  { type:"ctxword", re:/(?:^|[\s:])(?:user|usr|login|account|for user|invalid user)\s+([A-Za-z][\w.@-]*)/gi, group:1 },
+  { type:"user", re:/(?:^|[\s:])(?:user|usr|login|account)\s+['"]?([A-Za-z][\w.@-]*)/gi, group:1, fixedName:"dstuser" },
+  { type:"acl", re:/\baccess-list\s+([\w.-]+)/gi, group:1, fixedName:"data" },
+  { type:"action", re:/\b(denied|permitted|accepted|rejected|dropped|blocked|allowed|granted|revoked|failed)\b/gi, fixedName:"action" },
+  { type:"protocol", re:/\b(tcp|udp|icmp|icmpv6|gre|esp|ah|sctp)\b/gi, fixedName:"protocol" },
   { type:"number", re:/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g }
 ];
 
@@ -368,6 +371,7 @@ function patternsFor(type, value){
         ? { os:"\\d+.\\d+", pcre:"\\d+\\.\\d+" }
         : { os:"\\d+", pcre:"\\d+" };
     case "timestamp": return { os:osTimestampPattern(value), pcre:pcreTimestampPattern(value) };
+    case "action": case "protocol": return { os:"\\w+", pcre:"\\w+" };
     default:       return { os:"\\S+", pcre:"\\S+" };
   }
 }
@@ -481,9 +485,10 @@ function suggestName(msg, start, type, value, counters){
     if (/(?:pid|process)[\s:="'\[]*$/.test(before)) return "pid";
     if (/(?:status|code)[\s:="']*$/.test(before)) return "status";
     if (/(?:id|session)[\s:="']*$/.test(before)) return "id";
+    if (/%\w+-\d+-$/.test(before)) return "id";        /* Cisco %ASA/%FTD message ID */
+    if (/%\w+-$/.test(before)) return "severity";      /* Cisco severity digit */
     return "field" + (counters.generic++);
   }
-  if (type === "ctxword") return "dstuser";
   if (type === "email") return "user";
   if (type === "url") return "url";
   if (type === "mac") return "srcmac";
@@ -510,15 +515,25 @@ function tokenizePlain(msg){
       for (let i = start; i < end; i++) if (taken[i]){ free = false; break; }
       if (!free) continue;
       for (let i = start; i < end; i++) taken[i] = true;
-      spans.push({ start, end, value, type: det.type });
+      spans.push({ start, end, value, type: det.type, fixedName: det.fixedName });
     }
   }
   spans.sort((a,b) => a.start - b.start);
-  return spans.map(s => ({
+  const tokens = spans.map(s => ({
     ...s,
-    name: suggestName(msg, s.start, s.type, s.value, counters),
+    name: s.fixedName || suggestName(msg, s.start, s.type, s.value, counters),
     include: s.type !== "timestamp"
   }));
+  /* port right after an IP: ip(port) or ip:port (Cisco ASA/FTD style) */
+  for (let i = 1; i < tokens.length; i++){
+    const t = tokens[i], p = tokens[i-1];
+    if (t.type === "number" && /^field\d+$/.test(t.name) &&
+        p.type === "ipv4" && p.end === t.start - 1 &&
+        (msg[t.start-1] === "(" || msg[t.start-1] === ":")){
+      t.name = p.name === "dstip" ? "dstport" : "srcport";
+    }
+  }
+  return tokens;
 }
 
 /* KV tokenization */
@@ -876,7 +891,7 @@ function simulateLine(line, sim, rules){
 
 /* ---------- rendering ---------- */
 
-const TYPE_LABELS = { ipv4:"IPv4", ipv6:"IPv6", mac:"MAC", email:"email", url:"URL", sha256:"SHA-256", sha1:"SHA-1", md5:"MD5", uuid:"UUID", number:"number", ctxword:"word", timestamp:"time", string:"string", json:"json" };
+const TYPE_LABELS = { ipv4:"IPv4", ipv6:"IPv6", mac:"MAC", email:"email", url:"URL", sha256:"SHA-256", sha1:"SHA-1", md5:"MD5", uuid:"UUID", number:"number", user:"user", acl:"ACL", action:"action", protocol:"proto", timestamp:"time", string:"string", json:"json" };
 
 function highlightXML(xml){
   let h = htmlEscape(xml);
@@ -1035,6 +1050,7 @@ const EXAMPLES = [
   { label:"sshd (syslog)", log:"Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2\nJun 24 11:24:20 srv01 sshd[2742]: Failed password for invalid user oracle from 187.172.181.13 port 40213 ssh2" },
   { label:"FortiGate (key=value)", log:'date=2026-07-11 time=10:21:04 devname="FG100E" logid="0000000013" type="traffic" subtype="forward" level="notice" srcip=10.1.10.21 srcport=51234 dstip=8.8.8.8 dstport=53 proto=17 action="accept"' },
   { label:"JSON application", log:'{"timestamp":"2026-07-11T10:21:04Z","app":"payments-api","event":"login_failed","user":"a.ivanov","src_ip":"10.20.30.7","attempts":4}' },
+  { label:"Cisco FTD (ACL deny)", log:"%FTD-4-106103: access-list VPN-SSL-Users denied tcp for user 'i.ivanov' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670) hit-cnt 1 first hit [0xbb0817b6, 0x0]" },
   { label:"CEF", log:"CEF:0|Trend Micro|Deep Security Manager|20.0|600|User Signed In|3|src=10.52.116.160 suser=admin msg=User signed in from 10.52.116.160" },
   { label:"Custom application", log:"2026-07-11 10:21:04 WARN payment-gw: transaction declined for user a.ivanov from 10.20.30.7 amount=1500.00" }
 ];
