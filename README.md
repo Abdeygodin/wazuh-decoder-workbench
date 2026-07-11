@@ -1,5 +1,7 @@
 # Wazuh Decoder Workbench
 
+**Live demo: <https://abdeygodin.github.io/wazuh-decoder-workbench/>**
+
 A single-file, zero-dependency web tool for security engineers who write custom **decoders** and **rules** for [Wazuh SIEM](https://wazuh.com/).
 
 Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an instant `wazuh-logtest`-style check, all in your browser. Nothing is sent anywhere: the whole tool is one static HTML file.
@@ -22,7 +24,7 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
 
 ## Usage
 
-Open `index.html` in any modern browser. That's it.
+Open the [live demo](https://abdeygodin.github.io/wazuh-decoder-workbench/) or just open `index.html` in any modern browser. That's it.
 
 1. Paste one or more log lines (the first line defines the template; every line is run through the test).
 2. Click **Analyze**.
