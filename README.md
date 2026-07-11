@@ -23,6 +23,7 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
   - JSON logs use the built-in `JSON_Decoder` plugin instead of regex.
 - **rules.xml scaffold** — a base `decoded_as` rule plus an example refined rule with a `<field>` condition taken from your actual log.
 - **Built-in logtest simulator** — every pasted line is run through the generated decoders: extracted fields, matched rule ID and level, alert verdict.
+- **AI assistant (optional)** — describe what you want in plain language (“rename field3 to hit_count, extract the interface names too”) and let an LLM rewrite the decoder/rules. Works with **local models** (Ollama, LM Studio — nothing leaves your machine) and OpenAI-compatible / Anthropic cloud APIs (bring your own key, stored only in your browser). Every AI reply is **verified by the built-in simulator** against your sample lines before it is shown; failed attempts are sent back to the model with the exact errors (up to 3 tries).
 - **Deployment cheat-sheet** — file paths, custom rule ID range (100000–120000), `wazuh-logtest`, restart command.
 
 ## Usage
@@ -36,6 +37,14 @@ Open the [live demo](https://abdeygodin.github.io/wazuh-decoder-workbench/) or j
 5. Verify with `/var/ossec/bin/wazuh-logtest`, then `systemctl restart wazuh-manager`.
 
 > **Note:** the built-in test is an approximation of the Wazuh engine. Always do the final check with the real `wazuh-logtest`.
+
+## AI assistant setup
+
+- **Ollama (local, recommended):** start Ollama with your site allowed as an origin, e.g. `OLLAMA_ORIGINS=https://abdeygodin.github.io ollama serve` (or `OLLAMA_ORIGINS=*`). Pick “Ollama (local)”, click *Fetch models*, choose a model. Models around 30B+ handle decoder generation noticeably better than 7B ones.
+- **LM Studio (local):** enable the local server (default port 1234) with CORS on.
+- **OpenAI-compatible / Anthropic:** paste your base URL and API key. The key never leaves your browser except to call the API you configured.
+
+If your browser blocks calls from the https demo page to `http://localhost`, download `index.html` and open it locally — the tool is fully self-contained.
 
 ## Built-in examples
 
