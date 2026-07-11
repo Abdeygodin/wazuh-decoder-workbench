@@ -1,0 +1,1118 @@
+<meta charset="utf-8">
+<title>Wazuh Decoder Workbench</title>
+<style>
+  :root{
+    --bg:#edf1f4;
+    --surface:#ffffff;
+    --surface2:#f3f6f8;
+    --ink:#182530;
+    --muted:#5c6f7c;
+    --border:#d4dde3;
+    --accent:#0e7285;
+    --accent-ink:#ffffff;
+    --accent-soft:#e0f0f3;
+    --good:#1e7a4d;
+    --good-soft:#e2f3e9;
+    --warn:#9a6a12;
+    --warn-soft:#f7edd8;
+    --crit:#b02e2e;
+    --crit-soft:#f9e4e4;
+    --code-bg:#101820;
+    --code-ink:#d6e2ea;
+    --code-tag:#6fc3d6;
+    --code-attr:#e2b96a;
+    --code-str:#9fd08a;
+    --code-comment:#5f7482;
+    --mono:"Cascadia Code","JetBrains Mono",Consolas,"Roboto Mono",monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0e1519;
+      --surface:#151f26;
+      --surface2:#1b2731;
+      --ink:#dbe6ed;
+      --muted:#8ba1af;
+      --border:#2a3a45;
+      --accent:#4cc2d6;
+      --accent-ink:#06222a;
+      --accent-soft:#12333c;
+      --good:#4cc38a;
+      --good-soft:#12312a;
+      --warn:#e0aa45;
+      --warn-soft:#37301a;
+      --crit:#ef7070;
+      --crit-soft:#3b2020;
+      --code-bg:#0b1116;
+      --code-ink:#d6e2ea;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#edf1f4; --surface:#ffffff; --surface2:#f3f6f8; --ink:#182530; --muted:#5c6f7c;
+    --border:#d4dde3; --accent:#0e7285; --accent-ink:#ffffff; --accent-soft:#e0f0f3;
+    --good:#1e7a4d; --good-soft:#e2f3e9; --warn:#9a6a12; --warn-soft:#f7edd8;
+    --crit:#b02e2e; --crit-soft:#f9e4e4; --code-bg:#101820; --code-ink:#d6e2ea;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0e1519; --surface:#151f26; --surface2:#1b2731; --ink:#dbe6ed; --muted:#8ba1af;
+    --border:#2a3a45; --accent:#4cc2d6; --accent-ink:#06222a; --accent-soft:#12333c;
+    --good:#4cc38a; --good-soft:#12312a; --warn:#e0aa45; --warn-soft:#37301a;
+    --crit:#ef7070; --crit-soft:#3b2020; --code-bg:#0b1116; --code-ink:#d6e2ea;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-size:14.5px; line-height:1.5;
+    margin:0; padding:0 16px 48px;
+  }
+  .wrap{max-width:1280px; margin:0 auto}
+
+  header.app{
+    display:flex; flex-wrap:wrap; align-items:baseline; gap:8px 16px;
+    padding:26px 4px 6px;
+  }
+  header.app h1{
+    font-family:var(--mono); font-size:19px; font-weight:600; margin:0;
+    letter-spacing:.02em;
+  }
+  header.app h1 .tag{color:var(--accent)}
+  header.app .sub{color:var(--muted); font-size:13.5px; margin:0}
+
+  .examples{display:flex; flex-wrap:wrap; gap:6px; padding:8px 4px 16px}
+  .examples .lbl{
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.09em;
+    color:var(--muted); align-self:center; margin-right:2px;
+  }
+  .chip{
+    font-family:var(--mono); font-size:12px; padding:4px 11px; border-radius:999px;
+    border:1px solid var(--border); background:var(--surface); color:var(--ink);
+    cursor:pointer;
+  }
+  .chip:hover{border-color:var(--accent); color:var(--accent)}
+  .chip:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible{
+    outline:2px solid var(--accent); outline-offset:1px;
+  }
+
+  main{display:grid; grid-template-columns:minmax(420px,5fr) minmax(420px,6fr); gap:18px; align-items:start}
+  @media (max-width:980px){ main{grid-template-columns:1fr} .col-out{position:static} }
+
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:16px 16px 14px; margin-bottom:14px;
+  }
+  .card h2{
+    font-family:var(--mono); font-size:11.5px; font-weight:600; text-transform:uppercase;
+    letter-spacing:.1em; color:var(--muted); margin:0 0 10px;
+  }
+
+  textarea#logInput{
+    width:100%; min-height:96px; resize:vertical;
+    font-family:var(--mono); font-size:12.5px; line-height:1.55;
+    background:var(--surface2); color:var(--ink);
+    border:1px solid var(--border); border-radius:7px; padding:10px 12px;
+    white-space:pre; overflow-x:auto;
+  }
+  .row{display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px}
+  button.primary{
+    font-family:var(--mono); font-size:13px; font-weight:600;
+    background:var(--accent); color:var(--accent-ink); border:none;
+    padding:8px 18px; border-radius:7px; cursor:pointer;
+  }
+  button.primary:hover{filter:brightness(1.08)}
+  .hint{color:var(--muted); font-size:12.5px}
+
+  .fmt{display:flex; flex-wrap:wrap; gap:8px 18px; font-size:13px}
+  .fmt div{display:flex; gap:6px; align-items:baseline}
+  .fmt .k{color:var(--muted); font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.07em}
+  .fmt .v{font-family:var(--mono); font-size:12.5px}
+  .badge{
+    display:inline-block; font-family:var(--mono); font-size:11px; padding:2px 9px;
+    border-radius:999px; background:var(--accent-soft); color:var(--accent); font-weight:600;
+  }
+
+  table.fields{width:100%; border-collapse:collapse; font-size:13px}
+  table.fields th{
+    font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted); text-align:left; padding:4px 8px 6px; border-bottom:1px solid var(--border);
+    font-weight:600;
+  }
+  table.fields td{padding:5px 8px; border-bottom:1px solid var(--border); vertical-align:middle}
+  table.fields tr:last-child td{border-bottom:none}
+  td.val{font-family:var(--mono); font-size:12px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  td.typ span{
+    font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:4px;
+    background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+  }
+  .tbl-scroll{overflow-x:auto}
+  input.fname{
+    font-family:var(--mono); font-size:12.5px; width:130px;
+    background:var(--surface2); color:var(--ink);
+    border:1px solid var(--border); border-radius:5px; padding:4px 8px;
+  }
+  input[type=checkbox]{accent-color:var(--accent); width:15px; height:15px}
+
+  .settings{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 14px}
+  .settings label{display:flex; flex-direction:column; gap:4px; font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted)}
+  .settings input, .settings select{
+    font-family:var(--mono); font-size:12.5px;
+    background:var(--surface2); color:var(--ink);
+    border:1px solid var(--border); border-radius:5px; padding:6px 8px;
+  }
+  .dialect{grid-column:1 / -1; display:flex; gap:16px; flex-direction:row !important; align-items:center; text-transform:none !important}
+  .dialect .opt{display:flex; gap:6px; align-items:center; font-size:12.5px; color:var(--ink); cursor:pointer; text-transform:none; letter-spacing:0; font-family:var(--sans)}
+  .dialect input[type=radio]{accent-color:var(--accent)}
+
+  .col-out{position:sticky; top:14px}
+  .tabs{display:flex; gap:2px; border-bottom:1px solid var(--border); margin:-4px -4px 12px; padding:0 4px}
+  .tabs button{
+    font-family:var(--mono); font-size:12.5px; background:none; border:none;
+    color:var(--muted); padding:8px 14px 9px; cursor:pointer;
+    border-bottom:2px solid transparent; margin-bottom:-1px;
+  }
+  .tabs button.active{color:var(--accent); border-bottom-color:var(--accent); font-weight:600}
+
+  .codewrap{position:relative}
+  pre.code{
+    background:var(--code-bg); color:var(--code-ink);
+    font-family:var(--mono); font-size:12px; line-height:1.6;
+    border-radius:8px; padding:14px 16px; overflow-x:auto; margin:0;
+    tab-size:2;
+  }
+  pre.code .t{color:var(--code-tag)}
+  pre.code .a{color:var(--code-attr)}
+  pre.code .s{color:var(--code-str)}
+  pre.code .c{color:var(--code-comment); font-style:italic}
+  button.copy{
+    position:absolute; top:8px; right:8px;
+    font-family:var(--mono); font-size:11px;
+    background:rgba(255,255,255,.08); color:var(--code-ink);
+    border:1px solid rgba(255,255,255,.18); border-radius:5px;
+    padding:4px 10px; cursor:pointer;
+  }
+  button.copy:hover{background:rgba(255,255,255,.16)}
+
+  .test-line{border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:10px; background:var(--surface2)}
+  .test-line .raw{font-family:var(--mono); font-size:11.5px; color:var(--muted); overflow-x:auto; white-space:pre; padding-bottom:6px}
+  .test-line .verdict{font-family:var(--mono); font-size:12px; font-weight:600; margin-bottom:4px}
+  .verdict.ok{color:var(--good)} .verdict.fail{color:var(--crit)} .verdict.part{color:var(--warn)}
+  .kvlist{display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; font-family:var(--mono); font-size:12px}
+  .kvlist .fk{color:var(--accent)}
+  .kvlist .fv{overflow-wrap:anywhere}
+  .rule-hit{margin-top:6px; font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .rule-hit b{color:var(--ink)}
+
+  .note{
+    font-size:12.5px; color:var(--muted); background:var(--surface2);
+    border-left:3px solid var(--accent); border-radius:0 6px 6px 0;
+    padding:8px 12px; margin-top:12px;
+  }
+  .note.warn{border-left-color:var(--warn)}
+  .note code{font-family:var(--mono); font-size:11.5px}
+
+  details.tips{margin-top:4px}
+  details.tips summary{
+    cursor:pointer; font-family:var(--mono); font-size:11.5px; text-transform:uppercase;
+    letter-spacing:.1em; color:var(--muted); font-weight:600; padding:4px 0;
+  }
+  details.tips li{margin-bottom:6px; font-size:13px}
+  details.tips code{font-family:var(--mono); font-size:12px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px}
+  .empty{color:var(--muted); font-size:13px; padding:8px 2px}
+</style>
+
+<div class="wrap">
+  <header class="app">
+    <h1><span class="tag">wazuh</span>://decoder-workbench</h1>
+    <p class="sub">Paste a raw log line — get ready-to-use decoder.xml, rules.xml and a wazuh-logtest-style check</p>
+  </header>
+
+  <div class="examples" id="examples">
+    <span class="lbl">Examples:</span>
+  </div>
+
+  <main>
+    <div class="col-in">
+      <section class="card">
+        <h2>1 · Log lines</h2>
+        <textarea id="logInput" spellcheck="false" placeholder="Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2&#10;&#10;You can paste several lines — the first one defines the format, the rest are run through the test."></textarea>
+        <div class="row">
+          <button class="primary" id="analyzeBtn">Analyze</button>
+          <span class="hint">The first line defines the template; every line is run through the test</span>
+        </div>
+      </section>
+
+      <section class="card" id="fmtCard" hidden>
+        <h2>2 · What was detected</h2>
+        <div class="fmt" id="fmtInfo"></div>
+      </section>
+
+      <section class="card" id="fieldsCard" hidden>
+        <h2>3 · Fields to extract</h2>
+        <div class="tbl-scroll">
+          <table class="fields">
+            <thead><tr id="fieldsHead"></tr></thead>
+            <tbody id="fieldsBody"></tbody>
+          </table>
+        </div>
+        <div class="note" id="fieldsNote" hidden></div>
+      </section>
+
+      <section class="card" id="settingsCard" hidden>
+        <h2>4 · Generation settings</h2>
+        <div class="settings">
+          <label>Decoder name
+            <input id="decName" value="custom-app">
+          </label>
+          <label>First rule ID
+            <input id="ruleId" value="100100" inputmode="numeric">
+          </label>
+          <label>Base rule level
+            <select id="ruleLevel"></select>
+          </label>
+          <label>Rule group
+            <input id="ruleGroup" value="custom,">
+          </label>
+          <label class="dialect">
+            <span class="opt"><input type="radio" name="dialect" value="os" checked> OS_Regex (classic, all versions)</span>
+            <span class="opt"><input type="radio" name="dialect" value="pcre2"> PCRE2 (Wazuh 4.2+, more precise)</span>
+          </label>
+        </div>
+      </section>
+    </div>
+
+    <div class="col-out" id="outCol" hidden>
+      <section class="card">
+        <div class="tabs" role="tablist">
+          <button class="active" data-tab="decoder" role="tab">decoder.xml</button>
+          <button data-tab="rules" role="tab">rules.xml</button>
+          <button data-tab="test" role="tab">▸ test</button>
+        </div>
+        <div id="tab-decoder">
+          <div class="codewrap">
+            <button class="copy" data-copy="decoder">copy</button>
+            <pre class="code" id="decoderOut"></pre>
+          </div>
+          <div class="note" id="decoderNote" hidden></div>
+        </div>
+        <div id="tab-rules" hidden>
+          <div class="codewrap">
+            <button class="copy" data-copy="rules">copy</button>
+            <pre class="code" id="rulesOut"></pre>
+          </div>
+        </div>
+        <div id="tab-test" hidden>
+          <div id="testOut"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <details class="tips">
+          <summary>How to deploy</summary>
+          <ul>
+            <li>Decoder → <code>/var/ossec/etc/decoders/local_decoder.xml</code>, rules → <code>/var/ossec/etc/rules/local_rules.xml</code> (on the manager).</li>
+            <li>Custom rule IDs belong to the <code>100000–120000</code> range.</li>
+            <li>Verify before restarting: <code>/var/ossec/bin/wazuh-logtest</code> — paste the same log line there.</li>
+            <li>Apply: <code>systemctl restart wazuh-manager</code>.</li>
+            <li>Level ≥ 3 creates an alert (by default); level ≥ 12 — critical events.</li>
+            <li>OS_Regex: <code>\.+</code> means “any characters” and it is <b>greedy</b>: for quoted values the PCRE2 dialect (<code>[^"]*</code>) is more reliable.</li>
+            <li>The test here approximates the Wazuh engine. Always do the final check in <code>wazuh-logtest</code>.</li>
+          </ul>
+        </details>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- reference data ---------- */
+
+const FIELD_SUGGESTIONS = ["srcip","dstip","srcport","dstport","srcuser","dstuser","user","protocol","action","id","url","status","data","extra_data","system_name","srcmac","dstmac","timestamp"];
+
+const KV_KEYMAP = {
+  src:"srcip", srcip:"srcip", src_ip:"srcip", sip:"srcip", shost:"srcip", "source-ip":"srcip",
+  dst:"dstip", dstip:"dstip", dst_ip:"dstip", dip:"dstip", dhost:"dstip",
+  spt:"srcport", sport:"srcport", srcport:"srcport", src_port:"srcport",
+  dpt:"dstport", dport:"dstport", dstport:"dstport", dst_port:"dstport",
+  usr:"srcuser", user:"user", suser:"srcuser", duser:"dstuser", username:"user", login:"user", account:"user",
+  proto:"protocol", protocol:"protocol",
+  act:"action", action:"action",
+  request:"url", url:"url",
+  msg:"data", status:"status", mac:"srcmac", smac:"srcmac", dmac:"dstmac"
+};
+
+const TS_MONTHS = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec";
+
+/* Token detectors: order = priority */
+const DETECTORS = [
+  { type:"timestamp", re:new RegExp("\\b\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?\\b|\\b(?:"+TS_MONTHS+")\\s+\\d{1,2}\\s\\d{2}:\\d{2}:\\d{2}\\b","g") },
+  { type:"ipv4",  re:/\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b/g },
+  { type:"ipv6",  re:/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b/gi },
+  { type:"mac",   re:/\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi },
+  { type:"email", re:/\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g },
+  { type:"url",   re:/\bhttps?:\/\/[^\s"']+/g },
+  { type:"sha256",re:/\b[0-9a-f]{64}\b/gi },
+  { type:"sha1",  re:/\b[0-9a-f]{40}\b/gi },
+  { type:"md5",   re:/\b[0-9a-f]{32}\b/gi },
+  { type:"uuid",  re:/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi },
+  { type:"ctxword", re:/(?:^|[\s:])(?:user|usr|login|account|for user|invalid user)\s+([A-Za-z][\w.@-]*)/gi, group:1 },
+  { type:"number", re:/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g }
+];
+
+/* OS_Regex / PCRE2 patterns by token type */
+function patternsFor(type, value){
+  switch(type){
+    case "ipv4":   return { os:"\\d+.\\d+.\\d+.\\d+", pcre:"\\d{1,3}(?:\\.\\d{1,3}){3}" };
+    case "number": return value.includes(".")
+        ? { os:"\\d+.\\d+", pcre:"\\d+\\.\\d+" }
+        : { os:"\\d+", pcre:"\\d+" };
+    case "timestamp": return { os:osTimestampPattern(value), pcre:pcreTimestampPattern(value) };
+    default:       return { os:"\\S+", pcre:"\\S+" };
+  }
+}
+function osTimestampPattern(v){
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(v)) return v.includes(" ") ? "\\d+-\\d+-\\d+ \\d+:\\d+:\\d+" : "\\S+";
+  return "\\w+ \\s*\\d+ \\d+:\\d+:\\d+";
+}
+function pcreTimestampPattern(v){
+  if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return "\\S+";
+  if (/^\d{4}-\d{2}-\d{2} /.test(v)) return "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}";
+  return "\\w{3}\\s+\\d{1,2} \\d{2}:\\d{2}:\\d{2}";
+}
+
+/* ---------- escaping ---------- */
+
+const OS_SPECIALS = /[\\$()*+?\[\]^|]/g;
+function osEscape(s){ return s.replace(OS_SPECIALS, m => "\\"+m); }
+function pcreEscape(s){ return s.replace(/[.*+?^${}()|[\]\\\/]/g, m => "\\"+m); }
+function xmlEscape(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function htmlEscape(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function jsEscapeChar(c){ return /[.*+?^${}()|[\]\\\/]/.test(c) ? "\\"+c : c; }
+
+/* OS_Regex → JS RegExp (approximation of the os_regex engine) */
+function osToJs(p){
+  let out = "", i = 0;
+  while (i < p.length){
+    const c = p[i];
+    if (c === "\\"){
+      const n = p[i+1];
+      switch(n){
+        case "w": out += "[A-Za-z0-9_]"; break;
+        case "d": out += "[0-9]"; break;
+        case "s": out += " "; break;
+        case "S": out += "\\S"; break;
+        case "W": out += "[^A-Za-z0-9_]"; break;
+        case "D": out += "[^0-9]"; break;
+        case "t": out += "\\t"; break;
+        case "p": out += "[()*+,\\-.:;<=>?\\[\\]!\"'#$%&|{}]"; break;
+        case ".": out += "[\\s\\S]"; break;
+        default:  out += n !== undefined ? jsEscapeChar(n) : "\\\\";
+      }
+      i += 2;
+    } else if (c === "+" || c === "*" || c === "?"){
+      out += c; i++;
+    } else if (c === "^"){
+      out += (i === 0 ? "^" : "\\^"); i++;
+    } else if (c === "$"){
+      out += (i === p.length-1 ? "$" : "\\$"); i++;
+    } else if (c === "(" || c === ")"){
+      out += c; i++;
+    } else {
+      out += jsEscapeChar(c); i++;
+    }
+  }
+  return out;
+}
+function compileRegex(pattern, dialect){
+  try {
+    return new RegExp(dialect === "os" ? osToJs(pattern) : pattern);
+  } catch(e){ return null; }
+}
+
+/* ---------- input parsing ---------- */
+
+const SYSLOG_RE = new RegExp("^(?:<\\d+>)?((?:"+TS_MONTHS+")\\s+\\d{1,2}\\s\\d{2}:\\d{2}:\\d{2})\\s+(\\S+)\\s+([\\w./-]+?)(?:\\[(\\d+)\\])?:\\s+(.*)$");
+const SYSLOG5424_RE = /^<\d+>1\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(?:-|\[.*?\])\s*(.*)$/;
+
+function parseHeader(line){
+  let m = line.match(SYSLOG_RE);
+  if (m) return { kind:"rfc3164", timestamp:m[1], hostname:m[2], program:m[3], pid:m[4]||null, msg:m[5] };
+  m = line.match(SYSLOG5424_RE);
+  if (m) return { kind:"rfc5424", timestamp:m[1], hostname:m[2], program:m[3]==="-"?null:m[3], pid:m[4]==="-"?null:m[4], msg:m[7] };
+  return null;
+}
+
+function detectFormat(msg){
+  const t = msg.trim();
+  if (t.startsWith("{")){
+    try { const j = JSON.parse(t); if (j && typeof j === "object") return "json"; } catch(e){}
+  }
+  if (/^CEF:\d+\|/.test(t)) return "cef";
+  if (/^LEEF:/.test(t)) return "leef";
+  const kv = t.match(/[A-Za-z0-9_.-]+=(?:"[^"]*"|\S+)/g);
+  if (kv && kv.length >= 3 && kv.join(" ").length > t.length * 0.6) return "keyvalue";
+  return "plain";
+}
+
+function flattenJson(obj, prefix, out){
+  for (const k of Object.keys(obj)){
+    const v = obj[k];
+    const key = prefix ? prefix + "." + k : k;
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) flattenJson(v, key, out);
+    else out.push({ key, value: Array.isArray(v) ? JSON.stringify(v) : String(v) });
+  }
+  return out;
+}
+
+function sanitizeName(s){ return s.replace(/[^A-Za-z0-9_.-]/g, "_"); }
+
+function suggestName(msg, start, type, value, counters){
+  const before = msg.slice(Math.max(0, start-28), start).toLowerCase();
+  if (type === "ipv4" || type === "ipv6"){
+    if (/(?:from|src|source|client|s_?ip)[\s:="'(]*$/.test(before)) return "srcip";
+    if (/(?:to|dst|dest|server|d_?ip)[\s:="'(]*$/.test(before)) return "dstip";
+    return counters.ip++ === 0 ? "srcip" : "dstip";
+  }
+  if (type === "number"){
+    if (/(?:s(?:rc)?_?port|sport)[\s:="']*$/.test(before)) return "srcport";
+    if (/(?:d(?:st)?_?port|dport)[\s:="']*$/.test(before)) return "dstport";
+    if (/port[\s:="']*$/.test(before)) return counters.port++ === 0 ? "srcport" : "dstport";
+    if (/(?:pid|process)[\s:="'\[]*$/.test(before)) return "pid";
+    if (/(?:status|code)[\s:="']*$/.test(before)) return "status";
+    if (/(?:id|session)[\s:="']*$/.test(before)) return "id";
+    return "field" + (counters.generic++);
+  }
+  if (type === "ctxword") return "dstuser";
+  if (type === "email") return "user";
+  if (type === "url") return "url";
+  if (type === "mac") return "srcmac";
+  if (type === "sha256" || type === "sha1" || type === "md5") return type;
+  if (type === "uuid") return "id";
+  if (type === "timestamp") return "timestamp";
+  return "field" + (counters.generic++);
+}
+
+/* Positional tokenization (plain / syslog message) */
+function tokenizePlain(msg){
+  const spans = [];
+  const taken = new Array(msg.length).fill(false);
+  const counters = { ip:0, port:0, generic:1 };
+  for (const det of DETECTORS){
+    det.re.lastIndex = 0;
+    let m;
+    while ((m = det.re.exec(msg)) !== null){
+      let value = det.group ? m[det.group] : m[0];
+      let start = det.group ? m.index + m[0].indexOf(value) : m.index;
+      let end = start + value.length;
+      if (det.re.lastIndex === m.index) det.re.lastIndex++;
+      let free = true;
+      for (let i = start; i < end; i++) if (taken[i]){ free = false; break; }
+      if (!free) continue;
+      for (let i = start; i < end; i++) taken[i] = true;
+      spans.push({ start, end, value, type: det.type });
+    }
+  }
+  spans.sort((a,b) => a.start - b.start);
+  return spans.map(s => ({
+    ...s,
+    name: suggestName(msg, s.start, s.type, s.value, counters),
+    include: s.type !== "timestamp"
+  }));
+}
+
+/* KV tokenization */
+function tokenizeKV(msg){
+  const re = /([A-Za-z0-9_.-]+)=("([^"]*)"|\S+)/g;
+  const out = []; let m;
+  while ((m = re.exec(msg)) !== null){
+    const key = m[1];
+    const quoted = m[2].startsWith('"');
+    const value = quoted ? m[3] : m[2];
+    out.push({
+      key, value, quoted, start:m.index, end:m.index+m[0].length,
+      type: /^(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(value) ? "ipv4"
+          : /^\d+(?:\.\d+)?$/.test(value) ? "number" : "string",
+      name: KV_KEYMAP[key.toLowerCase()] || sanitizeName(key),
+      include: true
+    });
+  }
+  return out;
+}
+
+/* CEF */
+function parseCEF(msg){
+  const m = msg.match(/^CEF:(\d+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|(.*)$/);
+  if (!m) return null;
+  const header = { version:m[1], vendor:m[2], product:m[3], devVersion:m[4], sigId:m[5], name:m[6], severity:m[7] };
+  const ext = [];
+  const re = /([A-Za-z0-9_.]+)=((?:[^=\s]|\s(?!\S+=))+)/g;
+  let mm;
+  while ((mm = re.exec(m[8])) !== null){
+    ext.push({
+      key: mm[1], value: mm[2].trim(), quoted:false,
+      type:/^(?:\d{1,3}\.){3}\d{1,3}$/.test(mm[2].trim()) ? "ipv4" : /^\d+$/.test(mm[2].trim()) ? "number" : "string",
+      name: KV_KEYMAP[mm[1].toLowerCase()] || sanitizeName(mm[1]),
+      include: true
+    });
+  }
+  return { header, ext };
+}
+
+/* ---------- state ---------- */
+
+const state = {
+  lines: [], firstLine:"", header:null, format:"plain",
+  msg:"", tokens:[], jsonFields:[], cef:null,
+  analyzed:false
+};
+
+/* ---------- decoder.xml generation ---------- */
+
+function dialect(){ return document.querySelector('input[name="dialect"]:checked').value; }
+function decoderName(){ return sanitizeName(document.getElementById("decName").value.trim() || "custom-app"); }
+
+function sanitizeFieldName(s){ return s.replace(/[^A-Za-z0-9_.]/g, "_"); }
+function dedupeNames(tokens){
+  const seen = {};
+  return tokens.map(t => {
+    let n = sanitizeFieldName(t.name || "field");
+    if (seen[n]){ seen[n]++; n = n + "_" + seen[n]; } else seen[n] = 1;
+    return { ...t, outName:n };
+  });
+}
+
+function buildPositional(d){
+  const name = decoderName();
+  const all = dedupeNames(state.tokens);
+  const included = all.filter(t => t.include);
+  const notes = [];
+  const typeAttr = d === "pcre2" ? ' type="pcre2"' : "";
+  const esc = d === "pcre2" ? pcreEscape : osEscape;
+  const pat = t => { const p = patternsFor(t.type, t.value); return d === "pcre2" ? p.pcre : p.os; };
+
+  /* full regex over all tokens: included → capture group, excluded → non-captured.
+     Everything after the last included token is dropped. */
+  const lastInc = included.length ? all.lastIndexOf(included[included.length-1]) : -1;
+  let rx = "", pos = 0;
+  for (let i = 0; i <= lastInc; i++){
+    const t = all[i];
+    if (t.start > pos) rx += esc(state.msg.slice(pos, t.start));
+    rx += t.include ? "(" + pat(t) + ")" : pat(t);
+    pos = t.end;
+  }
+
+  /* parent decoder */
+  let parentOpen, parentMatchInfo;
+  if (state.header && state.header.program){
+    const prog = state.header.program;
+    parentOpen = `<decoder name="${name}">\n  <program_name>^${esc(prog)}$</program_name>\n</decoder>`;
+    parentMatchInfo = { mode:"program", program:prog };
+  } else {
+    /* prematch: literal before the first token, otherwise first token's pattern + trailing literal */
+    let pm;
+    const firstTok = all[0];
+    const lead = firstTok ? state.msg.slice(0, firstTok.start) : state.msg;
+    if (lead.trim().length >= 3){
+      pm = "^" + esc(lead.slice(0, 40));
+    } else if (firstTok){
+      const gapEnd = all[1] ? all[1].start : Math.min(state.msg.length, firstTok.end + 20);
+      pm = "^" + esc(lead) + pat(firstTok) + esc(state.msg.slice(firstTok.end, gapEnd));
+    } else {
+      pm = "^" + esc(state.msg.slice(0, Math.min(30, state.msg.length)));
+    }
+    parentOpen = `<decoder name="${name}">\n  <prematch${typeAttr}>${xmlEscape(pm)}</prematch>\n</decoder>`;
+    parentMatchInfo = { mode:"prematch", prematch:pm };
+  }
+
+  const lines = [parentOpen];
+  if (included.length){
+    const offsetAttr = parentMatchInfo.mode === "program" ? ' offset="after_parent"' : "";
+    lines.push("", [
+      `<decoder name="${name}-fields">`,
+      `  <parent>${name}</parent>`,
+      `  <regex${typeAttr}${offsetAttr}>^${xmlEscape(rx)}</regex>`,
+      `  <order>${included.map(t=>t.outName).join(", ")}</order>`,
+      `</decoder>`
+    ].join("\n"));
+  } else {
+    notes.push("No fields selected — only the parent decoder was generated.");
+  }
+  return {
+    xml: lines.join("\n"), notes,
+    sim:{ kind:"positional", parent:parentMatchInfo, regex: included.length ? "^"+rx : null, order:included.map(t=>t.outName), dialect:d }
+  };
+}
+
+function buildKV(d){
+  const name = decoderName();
+  const inc = dedupeNames(state.tokens.filter(t => t.include));
+  const typeAttr = d === "pcre2" ? ' type="pcre2"' : "";
+  const esc = d === "pcre2" ? pcreEscape : osEscape;
+  const notes = [];
+  const lines = [];
+  const simChildren = [];
+
+  let parentOpen, parentMatchInfo;
+  if (state.header && state.header.program){
+    parentOpen = `<decoder name="${name}">\n  <program_name>^${esc(state.header.program)}$</program_name>\n</decoder>`;
+    parentMatchInfo = { mode:"program", program:state.header.program };
+  } else {
+    let pm;
+    if (state.format === "cef" && state.cef && state.cef.header){
+      const h = state.cef.header;
+      pm = "^" + esc(`CEF:${h.version}|${h.vendor}|${h.product}|`);
+    } else {
+      const first = state.tokens[0];
+      pm = first && typeof first.start === "number"
+        ? "^" + esc(state.msg.slice(0, first.start + first.key.length + 1))
+        : "^" + esc(state.msg.slice(0, Math.min(20, state.msg.length)));
+    }
+    parentOpen = `<decoder name="${name}">\n  <prematch${typeAttr}>${xmlEscape(pm)}</prematch>\n</decoder>`;
+    parentMatchInfo = { mode:"prematch", prematch:pm };
+  }
+  lines.push(parentOpen);
+
+  for (const t of inc){
+    const p = patternsFor(t.type, t.value);
+    let rxPat;
+    if (t.quoted){
+      if (d === "pcre2"){
+        rxPat = esc(t.key) + '="([^"]*)"';
+      } else {
+        /* \.+ is greedy in OS_Regex — use a narrower class for simple values */
+        const osInner = /^\w+$/.test(t.value) ? "\\w+" : "\\.+";
+        rxPat = esc(t.key) + '="(' + osInner + ')"';
+      }
+    } else if (t.value.includes(" ")){
+      /* unquoted value containing spaces (typical for CEF msg=) */
+      rxPat = d === "pcre2"
+        ? esc(t.key) + "=(.+?)(?=\\s+\\w+=|$)"
+        : esc(t.key) + "=(\\.+)";
+    } else {
+      rxPat = esc(t.key) + "=(" + (d === "pcre2" ? p.pcre : p.os) + ")";
+    }
+    lines.push("", [
+      `<decoder name="${name}-${t.outName.replace(/\./g,"_")}">`,
+      `  <parent>${name}</parent>`,
+      `  <regex${typeAttr}>${xmlEscape(rxPat)}</regex>`,
+      `  <order>${t.outName}</order>`,
+      `</decoder>`
+    ].join("\n"));
+    simChildren.push({ regex: rxPat, field: t.outName });
+  }
+  if (d === "os" && inc.some(t => t.quoted || t.value.includes(" "))){
+    notes.push('The OS_Regex pattern "(\\.+)" is greedy: quoted values and values with spaces may capture too much. For such logs the PCRE2 dialect is more reliable.');
+  }
+  notes.push("For key=value logs the “one child decoder per field” pattern is used — it does not break when the vendor reorders fields.");
+  return { xml: lines.join("\n"), notes, sim:{ kind:"kv", parent:parentMatchInfo, children:simChildren, dialect:d } };
+}
+
+function buildJSON(){
+  const name = decoderName();
+  const inc = state.tokens.filter(t => t.include);
+  const firstKey = state.jsonFields.length ? state.jsonFields[0].key.split(".")[0] : null;
+  const raw = state.msg.trim();
+  let pm = "^{";
+  if (firstKey && raw.replace(/\s+/g,"").startsWith('{"' + firstKey + '"')) pm = '^{"' + osEscape(firstKey) + '"';
+  const xml = [
+    `<decoder name="${name}">`,
+    `  <prematch>${xmlEscape(pm)}</prematch>`,
+    `  <plugin_decoder>JSON_Decoder</plugin_decoder>`,
+    `</decoder>`
+  ].join("\n");
+  const notes = [
+    "JSON is parsed by the built-in JSON_Decoder: every key automatically becomes a dynamic field (data.<key>), no regex needed.",
+    "The checked fields are used below — in the example rule with a <field> condition."
+  ];
+  return { xml, notes, sim:{ kind:"json", prematch:pm, fields: state.jsonFields } };
+}
+
+function buildDecoder(){
+  const d = dialect();
+  if (state.format === "json") return buildJSON();
+  if (state.format === "keyvalue") return buildKV(d);
+  if (state.format === "cef"){
+    const r = buildKV(d);
+    r.notes.unshift("CEF: the header is kept in prematch, extension fields are parsed as key=value.");
+    return r;
+  }
+  return buildPositional(d);
+}
+
+/* ---------- rules.xml generation ---------- */
+
+function pickRuleField(){
+  const inc = state.tokens.filter(t => t.include);
+  const prefer = ["action","status","event","level","dstuser","user","srcuser"];
+  for (const p of prefer){
+    const f = inc.find(t => (t.name||"").toLowerCase().includes(p));
+    if (f) return f;
+  }
+  return inc[0] || null;
+}
+
+function buildRules(){
+  const name = decoderName();
+  const id = parseInt(document.getElementById("ruleId").value, 10) || 100100;
+  const level = document.getElementById("ruleLevel").value;
+  let group = document.getElementById("ruleGroup").value.trim() || "custom,";
+  if (!group.endsWith(",")) group += ",";
+  const d = dialect();
+  const typeAttr = d === "pcre2" ? ' type="pcre2"' : "";
+  const esc = d === "pcre2" ? pcreEscape : osEscape;
+
+  const out = [`<group name="${htmlEscape(group)}">`];
+  out.push("");
+  out.push([
+    `  <rule id="${id}" level="${level}">`,
+    `    <decoded_as>${name}</decoded_as>`,
+    `    <description>${name}: event received and decoded</description>`,
+    `  </rule>`
+  ].join("\n"));
+
+  const f = pickRuleField();
+  const childInfo = { fired:false };
+  if (f){
+    const fieldName = state.format === "json" ? f.name : (dedupeNames([f])[0].outName);
+    const val = String(f.value);
+    out.push("");
+    out.push([
+      `  <rule id="${id+1}" level="${Math.min(15, parseInt(level,10)+4)}">`,
+      `    <if_sid>${id}</if_sid>`,
+      `    <field name="${htmlEscape(fieldName)}"${typeAttr}>^${xmlEscape(esc(val))}$</field>`,
+      `    <description>${name}: ${htmlEscape(fieldName)} = ${htmlEscape(val)}</description>`,
+      `    <group>${htmlEscape(group)}</group>`,
+      `  </rule>`
+    ].join("\n"));
+    childInfo.fired = true;
+    childInfo.id = id + 1;
+    childInfo.level = Math.min(15, parseInt(level,10)+4);
+    childInfo.field = fieldName;
+    childInfo.value = val;
+  }
+  out.push("");
+  out.push(`</group>`);
+  return { xml: out.join("\n"), base:{ id, level }, child: childInfo };
+}
+
+/* ---------- wazuh-logtest simulator ---------- */
+
+function simulateLine(line, sim, rules){
+  const res = { raw: line, phases: [] };
+  const hdr = parseHeader(line);
+  const msg = hdr ? hdr.msg : line;
+
+  /* phase 1 */
+  const pre = [];
+  if (hdr){
+    pre.push(["timestamp", hdr.timestamp]);
+    pre.push(["hostname", hdr.hostname]);
+    if (hdr.program) pre.push(["program_name", hdr.program]);
+  }
+  res.pre = pre;
+
+  /* phase 2 */
+  const fields = [];
+  let matched = false;
+
+  if (sim.kind === "json"){
+    try {
+      const j = JSON.parse(msg.trim());
+      flattenJson(j, "", []).forEach(f => fields.push([f.key, f.value]));
+      matched = true;
+    } catch(e){ matched = false; }
+  } else {
+    /* parent */
+    let parentOk = false, searchFrom = 0;
+    if (sim.parent.mode === "program"){
+      parentOk = !!(hdr && hdr.program && hdr.program.replace(/\[\d+\]$/,"") === sim.parent.program);
+    } else {
+      const re = compileRegex(sim.parent.prematch, sim.dialect);
+      if (re){
+        const m = msg.match(re);
+        if (m){ parentOk = true; searchFrom = m.index + m[0].length; }
+      }
+    }
+    if (parentOk){
+      if (sim.kind === "kv"){
+        matched = true;
+        for (const ch of sim.children){
+          const re = compileRegex(ch.regex, sim.dialect);
+          if (!re) continue;
+          const m = msg.match(re);
+          if (m && m[1] !== undefined) fields.push([ch.field, m[1]]);
+        }
+      } else {
+        /* regex without offset — applied to the whole message */
+        if (sim.regex){
+          const re = compileRegex(sim.regex, sim.dialect);
+          if (re){
+            const m = msg.match(re);
+            if (m){
+              matched = true;
+              sim.order.forEach((name, i) => { if (m[i+1] !== undefined) fields.push([name, m[i+1]]); });
+            }
+          }
+        } else {
+          matched = true;
+        }
+      }
+    }
+  }
+  res.decoderMatched = matched;
+  res.fields = fields;
+
+  /* phase 3 */
+  if (matched){
+    res.rule = { id: rules.base.id, level: rules.base.level };
+    if (rules.child.fired){
+      const hit = fields.find(f => f[0] === rules.child.field && f[1] === rules.child.value);
+      if (hit) res.rule = { id: rules.child.id, level: rules.child.level, refined:true };
+    }
+  }
+  return res;
+}
+
+/* ---------- rendering ---------- */
+
+const TYPE_LABELS = { ipv4:"IPv4", ipv6:"IPv6", mac:"MAC", email:"email", url:"URL", sha256:"SHA-256", sha1:"SHA-1", md5:"MD5", uuid:"UUID", number:"number", ctxword:"word", timestamp:"time", string:"string", json:"json" };
+
+function highlightXML(xml){
+  let h = htmlEscape(xml);
+  h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="c">$1</span>');
+  h = h.replace(/(&lt;\/?)([\w:-]+)/g, '$1<span class="t">$2</span>');
+  h = h.replace(/([\w:-]+)=(&quot;.*?&quot;)/g, '<span class="a">$1</span>=<span class="s">$2</span>');
+  return h;
+}
+
+function renderFormatInfo(){
+  const el = document.getElementById("fmtInfo");
+  const fmtNames = { plain:"plain text (positional)", keyvalue:"key=value", json:"JSON", cef:"CEF", leef:"LEEF" };
+  let html = `<div><span class="k">format</span> <span class="badge">${fmtNames[state.format] || state.format}</span></div>`;
+  if (state.header){
+    html += `<div><span class="k">syslog</span> <span class="v">${state.header.kind === "rfc3164" ? "RFC 3164" : "RFC 5424"}</span></div>`;
+    if (state.header.program) html += `<div><span class="k">program_name</span> <span class="v">${htmlEscape(state.header.program)}</span></div>`;
+    html += `<div><span class="k">host</span> <span class="v">${htmlEscape(state.header.hostname)}</span></div>`;
+  } else {
+    html += `<div><span class="k">syslog header</span> <span class="v">not found</span></div>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderFieldsTable(){
+  const head = document.getElementById("fieldsHead");
+  const body = document.getElementById("fieldsBody");
+  const isKV = state.format === "keyvalue" || state.format === "cef";
+  const isJSON = state.format === "json";
+  head.innerHTML = `<th></th>${isKV || isJSON ? "<th>key</th>" : ""}<th>value</th><th>type</th><th>Wazuh field</th>`;
+  body.innerHTML = "";
+  if (!state.tokens.length){
+    body.innerHTML = `<tr><td colspan="5" class="empty">No tokens found — try a different log line format.</td></tr>`;
+    return;
+  }
+  state.tokens.forEach((t, idx) => {
+    const tr = document.createElement("tr");
+    const keyCell = (isKV || isJSON) ? `<td class="val">${htmlEscape(t.key || "")}</td>` : "";
+    tr.innerHTML =
+      `<td><input type="checkbox" data-idx="${idx}" ${t.include ? "checked" : ""} aria-label="include field"></td>` +
+      keyCell +
+      `<td class="val" title="${htmlEscape(t.value)}">${htmlEscape(t.value)}</td>` +
+      `<td class="typ"><span>${TYPE_LABELS[t.type] || t.type}</span></td>` +
+      `<td><input class="fname" list="fieldNames" data-idx="${idx}" value="${htmlEscape(t.name)}"></td>`;
+    body.appendChild(tr);
+  });
+  const note = document.getElementById("fieldsNote");
+  if (isJSON){
+    note.hidden = false;
+    note.textContent = "JSON fields are extracted by the plugin automatically. Checkboxes only affect the example rule with a <field> condition.";
+  } else {
+    note.hidden = true;
+  }
+}
+
+let lastDecoder = null, lastRules = null;
+
+function regenerate(){
+  if (!state.analyzed) return;
+  lastDecoder = buildDecoder();
+  lastRules = buildRules();
+
+  document.getElementById("decoderOut").innerHTML = highlightXML(lastDecoder.xml);
+  const dn = document.getElementById("decoderNote");
+  if (lastDecoder.notes.length){
+    dn.hidden = false;
+    dn.innerHTML = lastDecoder.notes.map(n => "• " + htmlEscape(n)).join("<br>");
+  } else dn.hidden = true;
+
+  document.getElementById("rulesOut").innerHTML = highlightXML(lastRules.xml);
+  renderTest();
+}
+
+function renderTest(){
+  const out = document.getElementById("testOut");
+  out.innerHTML = "";
+  if (!lastDecoder || !lastDecoder.sim){ out.innerHTML = '<div class="empty">No data.</div>'; return; }
+  state.lines.forEach(line => {
+    const r = simulateLine(line, lastDecoder.sim, lastRules);
+    const div = document.createElement("div");
+    div.className = "test-line";
+    let html = `<div class="raw">${htmlEscape(line)}</div>`;
+    if (r.decoderMatched){
+      html += `<div class="verdict ok">✓ decoder "${decoderName()}" matched</div>`;
+    } else {
+      html += `<div class="verdict fail">✗ decoder did not match — the line failed prematch/regex</div>`;
+    }
+    const allFields = [...r.pre, ...r.fields];
+    if (allFields.length){
+      html += `<div class="kvlist">` + allFields.map(([k,v]) =>
+        `<span class="fk">${htmlEscape(k)}</span><span class="fv">${htmlEscape(v)}</span>`).join("") + `</div>`;
+    }
+    if (r.rule){
+      html += `<div class="rule-hit">→ rule <b>${r.rule.id}</b>, level <b>${r.rule.level}</b>${r.rule.refined ? " (refined, by field value)" : " (base)"}${parseInt(r.rule.level,10) >= 3 ? " — an alert will be created" : " — below alert threshold"}</div>`;
+    }
+    div.innerHTML = html;
+    out.appendChild(div);
+  });
+}
+
+/* ---------- analysis ---------- */
+
+function analyze(){
+  const raw = document.getElementById("logInput").value;
+  const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (!lines.length) return;
+  state.lines = lines;
+  state.firstLine = lines[0];
+  state.header = parseHeader(lines[0]);
+  state.msg = state.header ? state.header.msg : lines[0];
+  state.format = detectFormat(state.msg);
+
+  if (state.format === "json"){
+    try {
+      const j = JSON.parse(state.msg.trim());
+      state.jsonFields = flattenJson(j, "", []);
+      state.tokens = state.jsonFields.map(f => ({
+        key:f.key, value:f.value, type:"json",
+        name:f.key, include:true
+      }));
+    } catch(e){ state.jsonFields = []; state.tokens = []; }
+  } else if (state.format === "cef"){
+    const cef = parseCEF(state.msg);
+    state.cef = cef;
+    state.tokens = cef ? cef.ext : [];
+  } else if (state.format === "keyvalue"){
+    state.tokens = tokenizeKV(state.msg);
+  } else {
+    state.tokens = tokenizePlain(state.msg);
+  }
+
+  /* decoder name from program_name */
+  if (state.header && state.header.program){
+    document.getElementById("decName").value = "custom-" + sanitizeName(state.header.program.toLowerCase());
+  } else if (state.format === "json"){
+    document.getElementById("decName").value = "custom-json-app";
+  } else if (state.format === "cef"){
+    const v = state.cef && state.cef.header ? sanitizeName(state.cef.header.product.toLowerCase()).slice(0,24) : "cef";
+    document.getElementById("decName").value = "custom-" + (v || "cef");
+  } else {
+    document.getElementById("decName").value = "custom-app";
+  }
+
+  state.analyzed = true;
+  document.getElementById("fmtCard").hidden = false;
+  document.getElementById("fieldsCard").hidden = false;
+  document.getElementById("settingsCard").hidden = false;
+  document.getElementById("outCol").hidden = false;
+  renderFormatInfo();
+  renderFieldsTable();
+  regenerate();
+}
+
+/* ---------- examples ---------- */
+
+const EXAMPLES = [
+  { label:"sshd (syslog)", log:"Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2\nJun 24 11:24:20 srv01 sshd[2742]: Failed password for invalid user oracle from 187.172.181.13 port 40213 ssh2" },
+  { label:"FortiGate (key=value)", log:'date=2026-07-11 time=10:21:04 devname="FG100E" logid="0000000013" type="traffic" subtype="forward" level="notice" srcip=10.1.10.21 srcport=51234 dstip=8.8.8.8 dstport=53 proto=17 action="accept"' },
+  { label:"JSON application", log:'{"timestamp":"2026-07-11T10:21:04Z","app":"payments-api","event":"login_failed","user":"a.ivanov","src_ip":"10.20.30.7","attempts":4}' },
+  { label:"CEF", log:"CEF:0|Trend Micro|Deep Security Manager|20.0|600|User Signed In|3|src=10.52.116.160 suser=admin msg=User signed in from 10.52.116.160" },
+  { label:"Custom application", log:"2026-07-11 10:21:04 WARN payment-gw: transaction declined for user a.ivanov from 10.20.30.7 amount=1500.00" }
+];
+
+/* ---------- init ---------- */
+
+function init(){
+  const ex = document.getElementById("examples");
+  EXAMPLES.forEach(e => {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = e.label;
+    b.addEventListener("click", () => {
+      document.getElementById("logInput").value = e.log;
+      analyze();
+    });
+    ex.appendChild(b);
+  });
+
+  const dl = document.createElement("datalist");
+  dl.id = "fieldNames";
+  FIELD_SUGGESTIONS.forEach(f => { const o = document.createElement("option"); o.value = f; dl.appendChild(o); });
+  document.body.appendChild(dl);
+
+  const lvl = document.getElementById("ruleLevel");
+  for (let i = 0; i <= 15; i++){
+    const o = document.createElement("option");
+    o.value = i; o.textContent = i + (i === 0 ? " (ignore)" : i < 3 ? "" : i < 7 ? " (low)" : i < 12 ? " (medium)" : " (high)");
+    if (i === 3) o.selected = true;
+    lvl.appendChild(o);
+  }
+
+  document.getElementById("analyzeBtn").addEventListener("click", analyze);
+  document.getElementById("logInput").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)){ e.preventDefault(); analyze(); }
+  });
+
+  document.getElementById("fieldsBody").addEventListener("change", e => {
+    const idx = e.target.dataset.idx;
+    if (idx === undefined) return;
+    if (e.target.type === "checkbox") state.tokens[idx].include = e.target.checked;
+    regenerate();
+  });
+  document.getElementById("fieldsBody").addEventListener("input", e => {
+    const idx = e.target.dataset.idx;
+    if (idx === undefined || !e.target.classList.contains("fname")) return;
+    state.tokens[idx].name = e.target.value;
+    regenerate();
+  });
+
+  ["decName","ruleId","ruleGroup"].forEach(id =>
+    document.getElementById(id).addEventListener("input", regenerate));
+  document.getElementById("ruleLevel").addEventListener("change", regenerate);
+  document.querySelectorAll('input[name="dialect"]').forEach(r =>
+    r.addEventListener("change", regenerate));
+
+  document.querySelectorAll(".tabs button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      ["decoder","rules","test"].forEach(t =>
+        document.getElementById("tab-" + t).hidden = (t !== btn.dataset.tab));
+    });
+  });
+
+  document.querySelectorAll("button.copy").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const src = btn.dataset.copy === "decoder" ? lastDecoder && lastDecoder.xml : lastRules && lastRules.xml;
+      if (!src) return;
+      try {
+        await navigator.clipboard.writeText(src);
+        btn.textContent = "copied ✓";
+        setTimeout(() => btn.textContent = "copy", 1400);
+      } catch(e){
+        btn.textContent = "error";
+        setTimeout(() => btn.textContent = "copy", 1400);
+      }
+    });
+  });
+}
+init();
+</script>
