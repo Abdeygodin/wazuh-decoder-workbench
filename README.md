@@ -40,7 +40,12 @@ Open the [live demo](https://abdeygodin.github.io/wazuh-decoder-workbench/) or j
 
 ## AI assistant setup
 
-- **Ollama (local, recommended):** start Ollama with your site allowed as an origin, e.g. `OLLAMA_ORIGINS=https://abdeygodin.github.io ollama serve` (or `OLLAMA_ORIGINS=*`). Pick “Ollama (local)”, click *Fetch models*, choose a model. Models around 30B+ handle decoder generation noticeably better than 7B ones.
+- **Ollama (local, recommended):** allow the page's origin, then fully restart Ollama (quit from the tray, start again):
+  - Windows (PowerShell): `setx OLLAMA_ORIGINS "https://abdeygodin.github.io"`
+  - Linux/macOS: `OLLAMA_ORIGINS=https://abdeygodin.github.io ollama serve`
+  - for a locally opened `index.html` use `OLLAMA_ORIGINS=*` (the file origin is `null`)
+
+  Pick “Ollama (local)”, click *Fetch models*, choose a model. Models around 30B+ (or MoE like qwen3 30B-A3B) handle decoder generation noticeably better than 7B ones — the tool detects failures honestly, weak models just get rejected by the verifier more often. If *Fetch models* fails, the app shows this checklist right in the UI.
 - **LM Studio (local):** enable the local server (default port 1234) with CORS on.
 - **OpenAI-compatible / Anthropic:** paste your base URL and API key. The key never leaves your browser except to call the API you configured.
 

@@ -342,6 +342,7 @@
           <button class="ghost" id="llmCheck">Test connection</button>
           <span id="llmStatus" class="hint"></span>
         </div>
+        <div id="llmHelp" class="note" hidden></div>
         <textarea id="aiTask" placeholder="e.g.: rename field3 to hit_count, extract the interface names too, and add a level 10 rule that fires on 5 denies from one srcip within 120 seconds"></textarea>
         <div class="row">
           <button class="primary" id="aiRun">Ask AI</button>
@@ -1447,6 +1448,7 @@ function initLLM(){
   $("llmFetch").addEventListener("click", async () => {
     const status = $("llmStatus");
     status.textContent = "fetching…";
+    $("llmHelp").hidden = true;
     try {
       const models = await llmFetchModels();
       dl.innerHTML = "";
@@ -1454,9 +1456,30 @@ function initLLM(){
       status.textContent = models.length + " models found — pick one in the Model box";
       if (models.length && !llmCfg.model){ llmCfg.model = models[0]; $("llmModel").value = models[0]; saveLlmCfg(); }
     } catch(e){
-      status.textContent = "failed: " + e.message + (llmCfg.provider === "ollama" ? " (is Ollama running? OLLAMA_ORIGINS set?)" : "");
+      status.textContent = "failed: " + e.message;
+      showLlmHelp();
     }
   });
+
+  function showLlmHelp(){
+    if (llmCfg.provider !== "ollama" && llmCfg.provider !== "lmstudio") return;
+    const el = $("llmHelp");
+    const origin = location.origin === "null" || location.protocol === "file:" ? null : location.origin;
+    if (llmCfg.provider === "ollama"){
+      const originValue = origin || "*";
+      el.innerHTML =
+        "<b>Connecting a local Ollama — checklist:</b><br>" +
+        "1. Ollama must be running (<code>ollama serve</code> or the desktop app).<br>" +
+        "2. Allow this page's origin. Windows (PowerShell): <code>setx OLLAMA_ORIGINS \"" + htmlEscape(originValue) + "\"</code> · Linux/macOS: start with <code>OLLAMA_ORIGINS=" + htmlEscape(originValue) + " ollama serve</code>" +
+        (origin ? "" : " (opened from a local file — the origin is <code>null</code>, so <code>*</code> is required)") + ".<br>" +
+        "3. Fully restart Ollama (quit from the tray, start again) and click <i>Fetch models</i>.<br>" +
+        "4. Still blocked? Some browsers restrict https pages from calling localhost — download <code>index.html</code> and open it locally, everything works offline.";
+    } else {
+      el.innerHTML =
+        "<b>Connecting LM Studio:</b> enable the local server (Developer tab, default port 1234) and turn on CORS in its settings, then click <i>Fetch models</i>. If the browser blocks the call from https, download <code>index.html</code> and open it locally.";
+    }
+    el.hidden = false;
+  }
 
   $("llmCheck").addEventListener("click", async () => {
     const status = $("llmStatus");
@@ -1465,7 +1488,8 @@ function initLLM(){
     try {
       const resp = await llmChat("Reply with exactly one word: OK");
       status.textContent = /ok/i.test(resp) ? "✓ connection works" : "✓ endpoint responded (" + resp.slice(0, 40) + ")";
-    } catch(e){ status.textContent = "✗ " + e.message; }
+      $("llmHelp").hidden = true;
+    } catch(e){ status.textContent = "✗ " + e.message; showLlmHelp(); }
   });
 
   $("aiRun").addEventListener("click", runAIAssist);
