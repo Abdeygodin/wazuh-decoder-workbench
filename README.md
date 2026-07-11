@@ -1,5 +1,8 @@
 # Wazuh Decoder Workbench
 
+<img width="2044" height="1210" alt="image" src="https://github.com/user-attachments/assets/2a748c35-082e-4c8a-a55b-b1b631035301" />
+
+
 **Live demo: <https://abdeygodin.github.io/wazuh-decoder-workbench/>**
 
 A single-file, zero-dependency web tool for security engineers who write custom **decoders** and **rules** for [Wazuh SIEM](https://wazuh.com/).
