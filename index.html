@@ -1103,7 +1103,7 @@ async function llmChat(prompt){
     const r = await fetch(llmBaseUrl() + "/v1/messages", { method:"POST",
       headers:{ "content-type":"application/json", "x-api-key":llmCfg.key,
         "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
-      body: JSON.stringify({ model:llmCfg.model, max_tokens:4096,
+      body: JSON.stringify({ model:llmCfg.model, max_tokens:4096, temperature:0.2,
         messages:[{ role:"user", content:prompt }] }) });
     if (!r.ok) throw new Error("HTTP " + r.status + " " + (await r.text()).slice(0,200));
     return ((await r.json()).content || []).map(b => b.text || "").join("");
@@ -1111,7 +1111,7 @@ async function llmChat(prompt){
   const headers = { "content-type":"application/json" };
   if (llmCfg.key) headers["Authorization"] = "Bearer " + llmCfg.key;
   const r = await fetch(llmV1() + "/chat/completions", { method:"POST", headers,
-    body: JSON.stringify({ model:llmCfg.model, messages:[{ role:"user", content:prompt }] }) });
+    body: JSON.stringify({ model:llmCfg.model, temperature:0.2, messages:[{ role:"user", content:prompt }] }) });
   if (!r.ok) throw new Error("HTTP " + r.status + " " + (await r.text()).slice(0,200));
   const j = await r.json();
   return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
@@ -1135,6 +1135,53 @@ function buildAIPrompt(instruction, feedback){
     : 'Wazuh OS_Regex — allowed classes: \\w \\d \\s \\S \\W \\D \\p \\. (where \\. means ANY character and a bare . is a literal dot); modifiers + * ?; () capture groups; escape literal ( ) [ ] $ ^ | * + ? with a backslash. NOT allowed: {n} quantifiers, [a-z] character classes, lookarounds, non-capturing groups.';
   return `You are an expert in Wazuh SIEM custom decoders and rules.
 
+CANONICAL WAZUH EXAMPLES — copy these structures exactly:
+
+1) syslog program, positional message:
+<decoder name="ex-sshd">
+  <program_name>^sshd$</program_name>
+</decoder>
+<decoder name="ex-sshd-fields">
+  <parent>ex-sshd</parent>
+  <prematch>^Accepted </prematch>
+  <regex offset="after_prematch">^\\S+ for (\\S+) from (\\d+.\\d+.\\d+.\\d+) port (\\d+)</regex>
+  <order>dstuser, srcip, srcport</order>
+</decoder>
+
+2) key=value log — one child decoder per field, order-independent:
+<decoder name="ex-kv">
+  <prematch>^date=</prematch>
+</decoder>
+<decoder name="ex-kv-srcip">
+  <parent>ex-kv</parent>
+  <regex>srcip=(\\d+.\\d+.\\d+.\\d+)</regex>
+  <order>srcip</order>
+</decoder>
+
+3) JSON log — plugin only, no regex:
+<decoder name="ex-json">
+  <prematch>^{"</prematch>
+  <plugin_decoder>JSON_Decoder</plugin_decoder>
+</decoder>
+
+4) rules, including a frequency rule:
+<group name="custom,">
+  <rule id="100200" level="3">
+    <decoded_as>ex-sshd</decoded_as>
+    <description>Event decoded</description>
+  </rule>
+  <rule id="100201" level="8">
+    <if_sid>100200</if_sid>
+    <field name="action">^denied$</field>
+    <description>Denied by ACL</description>
+  </rule>
+  <rule id="100202" level="10" frequency="5" timeframe="120">
+    <if_matched_sid>100201</if_matched_sid>
+    <same_source_ip />
+    <description>Multiple denies from the same source</description>
+  </rule>
+</group>
+
 SAMPLE LOG LINES (one event per line):
 ${state.lines.join("\n")}
 
@@ -1153,10 +1200,12 @@ HARD REQUIREMENTS:
 - Custom rule IDs must stay within 100000-120000.
 - XML-escape < > & inside regex/prematch text.
 - A capture group must contain ONLY the value itself: delimiters such as quotes, parentheses, brackets and commas must stay OUTSIDE the parentheses of the capture group (write \\((\\d+)\\), never \\((\\d+\\))).
+- Wazuh supports ONLY TWO levels of decoders: every <parent> must reference a decoder that itself has no <parent>. Sibling children of the same parent are all evaluated, use them for independent captures.
 - Every sample line above must be matched by the decoders and produce at least one field.
 ${feedback ? "\nYOUR PREVIOUS ATTEMPT FAILED VERIFICATION:\n" + feedback + "\nFix exactly these problems.\n" : ""}
 Respond with ONLY a JSON object, no prose before or after:
-{"decoders":"<decoder name=...>...</decoder>...","rules":"<group name=...>...</group>","notes":"one short sentence describing what you changed"}`;
+{"decoders":"<decoder name=...>...</decoder>...","rules":"<group name=...>...</group>","expected_fields":["every","field","name","that","must","be","extracted","from","the","first","sample","line"],"notes":"one short sentence describing what you changed"}
+The "expected_fields" list is verified against a real decoding run — list exactly the fields your decoders extract, including the ones the user asked for.`;
 }
 
 /* parse decoder XML into simulatable structures */
@@ -1236,6 +1285,18 @@ function simulateGeneric(line, decoders){
   return { matched:false, fields:[], hdr };
 }
 
+function countCaptures(pattern, type){
+  let n = 0;
+  for (let i = 0; i < pattern.length; i++){
+    if (pattern[i] === "\\"){ i++; continue; }
+    if (pattern[i] === "("){
+      if (type === "pcre2" && pattern[i+1] === "?") continue; /* (?: (?= (?! — not captures */
+      n++;
+    }
+  }
+  return n;
+}
+
 let aiResult = null;
 
 function aiLog(text, cls){
@@ -1304,6 +1365,25 @@ async function runAIAssist(){
       let decs;
       try { decs = parseDecodersXml(obj.decoders || ""); }
       catch(e){ feedback = e.message; aiLog(e.message + " — retrying", "warn"); continue; }
+      /* structural checks first: capture/<order> counts and nesting depth */
+      const structFails = [];
+      const byName = Object.fromEntries(decs.map(d => [d.name, d]));
+      decs.forEach(d => {
+        if (d.regex && d.order.length){
+          const caps = countCaptures(d.regex, d.regexType);
+          if (caps !== d.order.length)
+            structFails.push(`Decoder "${d.name}": the regex has ${caps} capture group(s) but <order> lists ${d.order.length} field(s) — the counts must be equal.`);
+        }
+        if (d.parent && byName[d.parent] && byName[d.parent].parent)
+          structFails.push(`Decoder "${d.name}": its <parent> "${d.parent}" itself has a parent — Wazuh supports only two decoder levels. Point <parent> at the top-level decoder instead.`);
+        if (d.parent && !byName[d.parent])
+          structFails.push(`Decoder "${d.name}": <parent> "${d.parent}" does not exist in your output.`);
+      });
+      if (structFails.length){
+        feedback = structFails.join("\n");
+        aiLog(`structure check failed (${structFails.length}) — sending errors back`, "warn");
+        continue;
+      }
       const fails = [], dirty = [];
       state.lines.forEach((ln, i) => {
         const r = simulateGeneric(ln, decs);
@@ -1317,6 +1397,16 @@ async function runAIAssist(){
         feedback = fails.join("\n");
         aiLog(`verification failed on ${fails.length} line(s) — sending errors back`, "warn");
         continue;
+      }
+      /* the model's own field claim vs a real decoding run of line 1 */
+      if (Array.isArray(obj.expected_fields) && obj.expected_fields.length){
+        const got = new Set(simulateGeneric(state.lines[0], decs).fields.map(f => f[0]));
+        const missing = obj.expected_fields.filter(f => !got.has(f));
+        if (missing.length){
+          feedback = `You declared expected_fields [${obj.expected_fields.join(", ")}] but a real decoding run of line 1 did NOT extract: ${missing.join(", ")}. Fix the decoders so these fields are actually captured (remember: only two decoder levels; siblings of the same parent all run).`;
+          aiLog(`declared fields missing from real run: ${missing.join(", ")} — sending back`, "warn");
+          continue;
+        }
       }
       if (dirty.length && attempt < 3){
         feedback = dirty.join("\n");
