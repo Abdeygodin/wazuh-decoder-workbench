@@ -191,6 +191,10 @@
     padding:4px 10px; cursor:pointer;
   }
   button.copy:hover{background:rgba(255,255,255,.16)}
+  button.copy.dl{right:104px}
+  .test-summary{font-family:var(--mono); font-size:12.5px; font-weight:600; padding:0 2px 10px}
+  .test-summary.allok{color:var(--good)}
+  .test-summary.some{color:var(--warn)}
 
   .test-line{border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:10px; background:var(--surface2)}
   .test-line .raw{font-family:var(--mono); font-size:11.5px; color:var(--muted); overflow-x:auto; white-space:pre; padding-bottom:6px}
@@ -274,7 +278,7 @@
         <textarea id="logInput" spellcheck="false" placeholder="Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2&#10;&#10;You can paste several lines — the first one defines the format, the rest are run through the test."></textarea>
         <div class="row">
           <button class="primary" id="analyzeBtn">Analyze</button>
-          <span class="hint">The first line defines the template; every line is run through the test</span>
+          <span class="hint" id="inputHint">The first line defines the template; every line is run through the test · Ctrl+Enter</span>
         </div>
       </section>
 
@@ -359,7 +363,7 @@
         <div class="tabs" role="tablist">
           <button class="active" data-tab="decoder" role="tab">decoder.xml</button>
           <button data-tab="rules" role="tab">rules.xml</button>
-          <button data-tab="test" role="tab">▸ test</button>
+          <button data-tab="test" role="tab">▸ logtest</button>
         </div>
         <div class="ai-banner" id="aiBanner" hidden>
           <b>AI · verified ✓</b><span id="aiBannerNote"></span>
@@ -367,6 +371,7 @@
         </div>
         <div id="tab-decoder">
           <div class="codewrap">
+            <button class="copy dl" data-dl="decoder">download</button>
             <button class="copy" data-copy="decoder">copy</button>
             <pre class="code" id="decoderOut"></pre>
           </div>
@@ -374,6 +379,7 @@
         </div>
         <div id="tab-rules" hidden>
           <div class="codewrap">
+            <button class="copy dl" data-dl="rules">download</button>
             <button class="copy" data-copy="rules">copy</button>
             <pre class="code" id="rulesOut"></pre>
           </div>
@@ -872,6 +878,7 @@ function buildRules(){
     const fieldName = state.format === "json" ? f.name : (dedupeNames([f])[0].outName);
     const val = String(f.value);
     out.push("");
+    out.push("  <!-- Example: refine by a field value. Adapt the field/value/level to your case or delete. -->");
     out.push([
       `  <rule id="${id+1}" level="${Math.min(15, parseInt(level,10)+4)}">`,
       `    <if_sid>${id}</if_sid>`,
@@ -1051,15 +1058,18 @@ function renderTest(){
   const out = document.getElementById("testOut");
   out.innerHTML = "";
   if (!lastDecoder || !lastDecoder.sim){ out.innerHTML = '<div class="empty">No data.</div>'; return; }
+  let okCount = 0;
+  const lineDivs = [];
   state.lines.forEach(line => {
     const r = simulateLine(line, lastDecoder.sim, lastRules);
+    if (r.decoderMatched) okCount++;
     const div = document.createElement("div");
     div.className = "test-line";
     let html = `<div class="raw">${htmlEscape(line)}</div>`;
     if (r.decoderMatched){
       html += `<div class="verdict ok">✓ decoder "${decoderName()}" matched</div>`;
     } else {
-      html += `<div class="verdict fail">✗ decoder did not match — the line failed prematch/regex</div>`;
+      html += `<div class="verdict fail">✗ no match — this line's format differs from the template built from line 1</div>`;
     }
     const allFields = [...r.pre, ...r.fields];
     if (allFields.length){
@@ -1070,8 +1080,19 @@ function renderTest(){
       html += `<div class="rule-hit">→ rule <b>${r.rule.id}</b>, level <b>${r.rule.level}</b>${r.rule.refined ? " (refined, by field value)" : " (base)"}${parseInt(r.rule.level,10) >= 3 ? " — an alert will be created" : " — below alert threshold"}</div>`;
     }
     div.innerHTML = html;
-    out.appendChild(div);
+    lineDivs.push(div);
   });
+  const sum = document.createElement("div");
+  sum.className = "test-summary " + (okCount === state.lines.length ? "allok" : "some");
+  sum.textContent = okCount + " / " + state.lines.length + " line(s) decoded";
+  out.appendChild(sum);
+  lineDivs.forEach(d => out.appendChild(d));
+  if (okCount < state.lines.length){
+    const g = document.createElement("div");
+    g.className = "note";
+    g.innerHTML = "Lines marked ✗ are <b>different message types</b> from the same source — that's normal. The generator currently builds one template per analysis: analyze those lines separately and add the resulting child decoders under the same parent, or ask the AI assistant to cover all pasted variants at once.";
+    out.appendChild(g);
+  }
 }
 
 /* ---------- LLM assistant ---------- */
@@ -1327,6 +1348,11 @@ function applyAIResult(obj, decoders){
 function renderTestAI(){
   const out = document.getElementById("testOut");
   out.innerHTML = "";
+  const okTotal = state.lines.filter(l => simulateGeneric(l, aiResult.decoders).matched).length;
+  const sum = document.createElement("div");
+  sum.className = "test-summary " + (okTotal === state.lines.length ? "allok" : "some");
+  sum.textContent = okTotal + " / " + state.lines.length + " line(s) decoded (AI version)";
+  out.appendChild(sum);
   state.lines.forEach(line => {
     const r = simulateGeneric(line, aiResult.decoders);
     const div = document.createElement("div");
@@ -1504,7 +1530,14 @@ function initLLM(){
 function analyze(){
   const raw = document.getElementById("logInput").value;
   const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  if (!lines.length) return;
+  const hint = document.getElementById("inputHint");
+  if (!lines.length){
+    hint.textContent = "Paste at least one log line first";
+    hint.style.color = "var(--warn)";
+    return;
+  }
+  hint.textContent = "The first line defines the template; every line is run through the test · Ctrl+Enter";
+  hint.style.color = "";
   state.lines = lines;
   state.firstLine = lines[0];
   state.header = parseHeader(lines[0]);
@@ -1646,7 +1679,22 @@ function init(){
     });
   });
 
-  document.querySelectorAll("button.copy").forEach(btn => {
+  document.querySelectorAll("button.dl").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const isDec = btn.dataset.dl === "decoder";
+      const src = isDec
+        ? (aiResult ? aiResult.decoderXml : lastDecoder && lastDecoder.xml)
+        : (aiResult ? aiResult.rulesXml : lastRules && lastRules.xml);
+      if (!src) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([src], { type:"text/xml" }));
+      a.download = isDec ? "local_decoder.xml" : "local_rules.xml";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+  });
+
+  document.querySelectorAll("button.copy:not(.dl)").forEach(btn => {
     btn.addEventListener("click", async () => {
       const src = btn.dataset.copy === "decoder"
         ? (aiResult ? aiResult.decoderXml : lastDecoder && lastDecoder.xml)
