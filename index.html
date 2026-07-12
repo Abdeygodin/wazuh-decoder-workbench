@@ -90,6 +90,8 @@
     cursor:pointer;
   }
   .chip:hover{border-color:var(--accent); color:var(--accent)}
+  .chip.active{border-color:var(--accent); color:var(--accent); font-weight:600; background:var(--accent-soft)}
+  #variantTabs{padding:0 0 10px}
   .chip:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible{
     outline:2px solid var(--accent); outline-offset:1px;
   }
@@ -290,6 +292,7 @@
 
       <section class="card" id="fieldsCard" hidden>
         <h2>3 · Fields to extract</h2>
+        <div class="examples" id="variantTabs" hidden></div>
         <div class="tbl-scroll">
           <table class="fields">
             <thead><tr id="fieldsHead"></tr></thead>
@@ -440,6 +443,7 @@ const DETECTORS = [
   { type:"sha1",  re:/\b[0-9a-f]{40}\b/gi },
   { type:"md5",   re:/\b[0-9a-f]{32}\b/gi },
   { type:"uuid",  re:/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi },
+  { type:"user", re:/(?:password|session|publickey|key)\s+for\s+(?:invalid user\s+|illegal user\s+|user\s+)?['"]?([A-Za-z][\w.@-]*)/gi, group:1, fixedName:"dstuser" },
   { type:"user", re:/(?:^|[\s:])(?:user|usr|login|account)\s+['"]?([A-Za-z][\w.@-]*)/gi, group:1, fixedName:"dstuser" },
   { type:"acl", re:/\baccess-list\s+([\w.-]+)/gi, group:1, fixedName:"data" },
   { type:"action", re:/\b(denied|permitted|accepted|rejected|dropped|blocked|allowed|granted|revoked|failed)\b/gi, fixedName:"action" },
@@ -500,8 +504,10 @@ function osToJs(p){
       i += 2;
     } else if (c === "+" || c === "*" || c === "?"){
       out += c; i++;
+    } else if (c === "|"){
+      out += "|"; i++;
     } else if (c === "^"){
-      out += (i === 0 ? "^" : "\\^"); i++;
+      out += (i === 0 || p[i-1] === "|" ? "^" : "\\^"); i++;
     } else if (c === "$"){
       out += (i === p.length-1 ? "$" : "\\$"); i++;
     } else if (c === "(" || c === ")"){
@@ -829,6 +835,61 @@ function buildJSON(){
   return { xml, notes, sim:{ kind:"json", prematch:pm, fields: state.jsonFields } };
 }
 
+/* several message variants: one parent + one child decoder per variant */
+function buildPositionalMulti(d){
+  const name = decoderName();
+  const typeAttr = d === "pcre2" ? ' type="pcre2"' : "";
+  const esc = d === "pcre2" ? pcreEscape : osEscape;
+  const pat = t => { const p = patternsFor(t.type, t.value); return d === "pcre2" ? p.pcre : p.os; };
+  const notes = [];
+
+  const pmFragment = v => {
+    const first = v.tokens[0];
+    const lead = first ? v.msg.slice(0, first.start) : v.msg;
+    if (lead.trim().length >= 3) return esc(lead.slice(0, 30));
+    if (first){
+      const gapEnd = v.tokens[1] ? v.tokens[1].start : Math.min(v.msg.length, first.end + 20);
+      return esc(lead) + pat(first) + esc(v.msg.slice(first.end, gapEnd));
+    }
+    return esc(v.msg.slice(0, Math.min(20, v.msg.length)));
+  };
+
+  let parentOpen;
+  if (state.header && state.header.program){
+    parentOpen = `<decoder name="${name}">\n  <program_name>^${esc(state.header.program)}$</program_name>\n</decoder>`;
+  } else {
+    const pm = state.variants.map(v => "^" + pmFragment(v)).join("|");
+    parentOpen = `<decoder name="${name}">\n  <prematch${typeAttr}>${xmlEscape(pm)}</prematch>\n</decoder>`;
+  }
+
+  const lines = [parentOpen];
+  state.variants.forEach(v => {
+    const all = dedupeNames(v.tokens);
+    const included = all.filter(t => t.include);
+    if (!included.length){
+      notes.push(`Variant "${v.slug}": no fields selected — child decoder skipped.`);
+      return;
+    }
+    const lastInc = all.lastIndexOf(included[included.length - 1]);
+    let rx = "", pos = 0;
+    for (let i = 0; i <= lastInc; i++){
+      const t = all[i];
+      if (t.start > pos) rx += esc(v.msg.slice(pos, t.start));
+      rx += t.include ? "(" + pat(t) + ")" : pat(t);
+      pos = t.end;
+    }
+    lines.push("", [
+      `<decoder name="${name}-${v.slug}">`,
+      `  <parent>${name}</parent>`,
+      `  <regex${typeAttr}>^${xmlEscape(rx)}</regex>`,
+      `  <order>${included.map(t => t.outName).join(", ")}</order>`,
+      `</decoder>`
+    ].join("\n"));
+  });
+  notes.push(state.variants.length + " message variants detected — one child decoder per variant, all under the same parent. Fields are edited per variant (tabs above the table).");
+  return { xml: lines.join("\n"), notes, sim: null };
+}
+
 function buildDecoder(){
   const d = dialect();
   if (state.format === "json") return buildJSON();
@@ -838,6 +899,7 @@ function buildDecoder(){
     r.notes.unshift("CEF: the header is kept in prematch, extension fields are parsed as key=value.");
     return r;
   }
+  if (state.variants && state.variants.length > 1) return buildPositionalMulti(d);
   return buildPositional(d);
 }
 
@@ -999,6 +1061,9 @@ function renderFormatInfo(){
   } else {
     html += `<div><span class="k">syslog header</span> <span class="v">not found</span></div>`;
   }
+  if (state.variants && state.variants.length > 1){
+    html += `<div><span class="k">message variants</span> <span class="badge">${state.variants.length}</span></div>`;
+  }
   el.innerHTML = html;
 }
 
@@ -1057,27 +1122,34 @@ function regenerate(){
 function renderTest(){
   const out = document.getElementById("testOut");
   out.innerHTML = "";
-  if (!lastDecoder || !lastDecoder.sim){ out.innerHTML = '<div class="empty">No data.</div>'; return; }
+  if (!lastDecoder){ out.innerHTML = '<div class="empty">No data.</div>'; return; }
+  let decs;
+  try { decs = parseDecodersXml(lastDecoder.xml); }
+  catch(e){ out.innerHTML = '<div class="empty">Generated XML could not be parsed.</div>'; return; }
   let okCount = 0;
   const lineDivs = [];
   state.lines.forEach(line => {
-    const r = simulateLine(line, lastDecoder.sim, lastRules);
-    if (r.decoderMatched) okCount++;
+    const r = simulateGeneric(line, decs);
+    if (r.matched) okCount++;
     const div = document.createElement("div");
     div.className = "test-line";
     let html = `<div class="raw">${htmlEscape(line)}</div>`;
-    if (r.decoderMatched){
-      html += `<div class="verdict ok">✓ decoder "${decoderName()}" matched</div>`;
+    if (r.matched){
+      html += `<div class="verdict ok">✓ decoder "${htmlEscape(r.via || r.parent)}" matched</div>`;
     } else {
-      html += `<div class="verdict fail">✗ no match — this line's format differs from the template built from line 1</div>`;
+      html += `<div class="verdict fail">✗ no match — this line fits none of the generated decoders</div>`;
     }
-    const allFields = [...r.pre, ...r.fields];
+    const pre = r.hdr ? [["timestamp", r.hdr.timestamp], ["hostname", r.hdr.hostname], ["program_name", r.hdr.program]].filter(x => x[1]) : [];
+    const allFields = [...pre, ...r.fields];
     if (allFields.length){
       html += `<div class="kvlist">` + allFields.map(([k,v]) =>
         `<span class="fk">${htmlEscape(k)}</span><span class="fv">${htmlEscape(v)}</span>`).join("") + `</div>`;
     }
-    if (r.rule){
-      html += `<div class="rule-hit">→ rule <b>${r.rule.id}</b>, level <b>${r.rule.level}</b>${r.rule.refined ? " (refined, by field value)" : " (base)"}${parseInt(r.rule.level,10) >= 3 ? " — an alert will be created" : " — below alert threshold"}</div>`;
+    if (r.matched && lastRules){
+      let rule = { id: lastRules.base.id, level: lastRules.base.level, refined: false };
+      if (lastRules.child.fired && r.fields.some(f => f[0] === lastRules.child.field && f[1] === lastRules.child.value))
+        rule = { id: lastRules.child.id, level: lastRules.child.level, refined: true };
+      html += `<div class="rule-hit">→ rule <b>${rule.id}</b>, level <b>${rule.level}</b>${rule.refined ? " (refined, by field value)" : " (base)"}${parseInt(rule.level,10) >= 3 ? " — an alert will be created" : " — below alert threshold"}</div>`;
     }
     div.innerHTML = html;
     lineDivs.push(div);
@@ -1090,7 +1162,7 @@ function renderTest(){
   if (okCount < state.lines.length){
     const g = document.createElement("div");
     g.className = "note";
-    g.innerHTML = "Lines marked ✗ are <b>different message types</b> from the same source — that's normal. The generator currently builds one template per analysis: analyze those lines separately and add the resulting child decoders under the same parent, or ask the AI assistant to cover all pasted variants at once.";
+    g.innerHTML = "Lines marked ✗ could not be grouped into any generated variant — usually a different source/program, another format (JSON/key=value mixed with plain text), or non-log data such as packet bytes. Analyze those lines separately.";
     out.appendChild(g);
   }
 }
@@ -1279,6 +1351,7 @@ function simulateGeneric(line, decoders){
       try { flattenJson(JSON.parse(msg.trim()), "", []).forEach(f => fields.push([f.key, f.value])); }
       catch(e){ continue; }
     }
+    let via = null;
     if (p.regex){
       const re = compileRegex(p.regex, p.regexType);
       const m = re ? msg.slice(p.offset === "after_prematch" ? pmEnd : 0).match(re) : null;
@@ -1302,10 +1375,13 @@ function simulateGeneric(line, decoders){
       if (k.regex){
         const re = compileRegex(k.regex, k.regexType);
         const m = re ? msg.slice(from).match(re) : null;
-        if (m) k.order.forEach((n,i) => { if (m[i+1] !== undefined) fields.push([n, m[i+1]]); });
+        if (m){
+          k.order.forEach((n,i) => { if (m[i+1] !== undefined) fields.push([n, m[i+1]]); });
+          if (!via && k.order.length) via = k.name;
+        }
       }
     }
-    return { matched:true, parent:p.name, fields, hdr };
+    return { matched:true, parent:p.name, via, fields, hdr };
   }
   return { matched:false, fields:[], hdr };
 }
@@ -1544,6 +1620,7 @@ function analyze(){
   state.msg = state.header ? state.header.msg : lines[0];
   state.format = detectFormat(state.msg);
 
+  state.variants = null;
   if (state.format === "json"){
     try {
       const j = JSON.parse(state.msg.trim());
@@ -1560,7 +1637,38 @@ function analyze(){
   } else if (state.format === "keyvalue"){
     state.tokens = tokenizeKV(state.msg);
   } else {
-    state.tokens = tokenizePlain(state.msg);
+    /* plain: group ALL compatible lines into message variants by their literal+token skeleton */
+    const groups = new Map();
+    state.lines.forEach(line => {
+      let msg = null;
+      const hdr = parseHeader(line);
+      if (state.header && state.header.program){
+        if (hdr && hdr.program === state.header.program) msg = hdr.msg;
+      } else if (!state.header && !hdr){
+        msg = line;
+      }
+      if (msg === null || detectFormat(msg) !== "plain") return;
+      const toks = tokenizePlain(msg);
+      let sig = "", pos = 0;
+      toks.forEach(t => { sig += msg.slice(pos, t.start) + " " + t.type + " "; pos = t.end; });
+      sig += msg.slice(pos);
+      if (!groups.has(sig)) groups.set(sig, { msg, tokens: toks, lines: [] });
+      groups.get(sig).lines.push(line);
+    });
+    state.variants = [...groups.values()];
+    if (!state.variants.length)
+      state.variants = [{ msg: state.msg, tokens: tokenizePlain(state.msg), lines: [state.lines[0]] }];
+    const seenSlugs = {};
+    state.variants.forEach((v, i) => {
+      let s = v.msg.split(/\s+/).slice(0, 3).join("-").toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 28);
+      if (!s) s = "variant-" + (i + 1);
+      if (seenSlugs[s]){ seenSlugs[s]++; s = s + "-" + seenSlugs[s]; } else seenSlugs[s] = 1;
+      v.slug = s;
+      v.label = v.msg.slice(0, 34) + (v.msg.length > 34 ? "…" : "");
+    });
+    state.activeVariant = 0;
+    state.tokens = state.variants[0].tokens;
   }
 
   /* decoder name from program_name */
@@ -1604,14 +1712,35 @@ function analyze(){
   document.getElementById("aiCard").hidden = false;
   document.getElementById("outCol").hidden = false;
   renderFormatInfo();
+  renderVariantTabs();
   renderFieldsTable();
   regenerate();
+}
+
+function renderVariantTabs(){
+  const el = document.getElementById("variantTabs");
+  if (!state.variants || state.variants.length < 2){ el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = "";
+  state.variants.forEach((v, i) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (i === state.activeVariant ? " active" : "");
+    b.textContent = (i + 1) + " · " + v.label + " (" + v.lines.length + ")";
+    b.title = v.msg;
+    b.addEventListener("click", () => {
+      state.activeVariant = i;
+      state.tokens = v.tokens;
+      renderVariantTabs();
+      renderFieldsTable();
+    });
+    el.appendChild(b);
+  });
 }
 
 /* ---------- examples ---------- */
 
 const EXAMPLES = [
-  { label:"sshd (syslog)", log:"Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2\nJun 24 11:24:20 srv01 sshd[2742]: Failed password for invalid user oracle from 187.172.181.13 port 40213 ssh2" },
+  { label:"sshd (3 variants)", log:"Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2\nJun 24 11:24:20 srv01 sshd[2742]: Failed password for invalid user oracle from 187.172.181.13 port 40213 ssh2\nJun 24 11:25:02 srv01 sshd[2811]: Accepted password for deploy from 10.0.0.5 port 51102 ssh2\nJun 24 11:26:11 srv01 sshd[2903]: Connection closed by 10.0.0.9 port 40404 [preauth]" },
   { label:"FortiGate (key=value)", log:'date=2026-07-11 time=10:21:04 devname="FG100E" logid="0000000013" type="traffic" subtype="forward" level="notice" srcip=10.1.10.21 srcport=51234 dstip=8.8.8.8 dstport=53 proto=17 action="accept"' },
   { label:"JSON application", log:'{"timestamp":"2026-07-11T10:21:04Z","app":"payments-api","event":"login_failed","user":"a.ivanov","src_ip":"10.20.30.7","attempts":4}' },
   { label:"Cisco FTD (ACL deny)", log:"%FTD-4-106103: access-list VPN-SSL-Users denied tcp for user 'i.ivanov' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670) hit-cnt 1 first hit [0xbb0817b6, 0x0]" },
