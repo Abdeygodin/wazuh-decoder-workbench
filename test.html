@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wazuh Decoder Workbench Samples</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #11182b;
+      --line: #26324a;
+      --text: #edf2ff;
+      --muted: #9aa8c7;
+      --good: #45d483;
+      --bad: #ff6b6b;
+    }
+    body {
+      margin: 0;
+      font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 18px 48px;
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+    p {
+      margin: 0 0 22px;
+      color: var(--muted);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    tr:last-child td {
+      border-bottom: 0;
+    }
+    code {
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      color: #dbe7ff;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .ok {
+      color: var(--good);
+      font-weight: 700;
+    }
+    .fail {
+      color: var(--bad);
+      font-weight: 700;
+    }
+    .summary {
+      margin: 18px 0;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Sample log regression page</h1>
+    <p>Loads anonymized sample logs and checks the fields the workbench should preserve during decoder generation.</p>
+    <div id="summary" class="summary">Loading samples...</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Sample</th>
+          <th>Raw log</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </main>
+  <script>
+    const SYSLOG_RE = /^(?:<\d+>)?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s\d{2}:\d{2}:\d{2})\s+(\S+)\s+([\w%./,-]+?)(?:\[(\d+)\])?:?\s+(.*)$/;
+
+    function parseKeyValues(text) {
+      const out = {};
+      const re = /([A-Za-z0-9_.-]+)=("([^"]*)"|\S+)/g;
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        out[match[1]] = match[3] || match[2];
+      }
+      return out;
+    }
+
+    function extractFields(line) {
+      const fields = {};
+      const syslog = line.match(SYSLOG_RE);
+      const body = syslog ? syslog[5] : line;
+      if (syslog) {
+        fields.hostname = syslog[2];
+        fields.program = syslog[3];
+      }
+
+      if (line.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(line);
+          for (const [key, value] of Object.entries(parsed)) fields[key] = String(value);
+          return fields;
+        } catch {}
+      }
+
+      Object.assign(fields, parseKeyValues(body));
+
+      const flow = body.match(/(\d{1,3}(?:\.\d{1,3}){3})[:/](\d+)(?:->|.*\sto\s.*:)(\d{1,3}(?:\.\d{1,3}){3})[:/](\d+)/);
+      if (flow) {
+        fields.srcip ||= flow[1];
+        fields.srcport ||= flow[2];
+        fields.dstip ||= flow[3];
+        fields.dstport ||= flow[4];
+      }
+
+      const nginx = line.match(/^(\d{1,3}(?:\.\d{1,3}){3}) .*"([A-Z]+) ([^ ]+) [^"]+" (\d{3}) /);
+      if (nginx) {
+        fields.srcip = nginx[1];
+        fields.method = nginx[2];
+        fields.url = nginx[3];
+        fields.status = nginx[4];
+      }
+
+      const postfix = body.match(/(reject): .*?\[(\d{1,3}(?:\.\d{1,3}){3})\]: (\d{3}) /);
+      if (postfix) {
+        fields.action = postfix[1];
+        fields.srcip = postfix[2];
+        fields.status = postfix[3];
+      }
+
+      const action = body.match(/^(forward|Built|reject)\b/);
+      if (action) fields.action ||= action[1];
+
+      const id = body.match(/connection (\d+)/);
+      if (id) fields.id = id[1];
+
+      return fields;
+    }
+
+    function render(samples) {
+      let passed = 0;
+      const rows = samples.map((sample) => {
+        const fields = extractFields(sample.line);
+        const failures = Object.entries(sample.expected_fields)
+          .filter(([key, expected]) => fields[key] !== String(expected))
+          .map(([key, expected]) => `${key}: expected ${expected}, got ${fields[key] || "<missing>"}`);
+        if (!failures.length) passed += 1;
+        return `<tr>
+          <td><strong>${sample.name}</strong><br><span>${sample.source}</span></td>
+          <td><code>${escapeHtml(sample.line)}</code></td>
+          <td class="${failures.length ? "fail" : "ok"}">${failures.length ? failures.join("<br>") : "PASS"}</td>
+        </tr>`;
+      }).join("");
+      document.getElementById("results").innerHTML = rows;
+      const summary = document.getElementById("summary");
+      summary.textContent = `${passed}/${samples.length} samples passed`;
+      summary.className = `summary ${passed === samples.length ? "ok" : "fail"}`;
+    }
+
+    function escapeHtml(value) {
+      return value.replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    fetch("samples/log-samples.json")
+      .then((response) => response.json())
+      .then(render)
+      .catch((error) => {
+        document.getElementById("summary").textContent = `Could not load samples: ${error.message}`;
+        document.getElementById("summary").className = "summary fail";
+      });
+  </script>
+</body>
+</html>
