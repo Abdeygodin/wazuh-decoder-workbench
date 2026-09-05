@@ -1,0 +1,77 @@
+[
+  {
+    "name": "MikroTik firewall forward",
+    "source": "mikrotik",
+    "line": "Sep  5 09:15:22 router01 firewall,info forward: in:bridge-lan out:pppoe-wan, src-mac 02:00:5e:00:53:10, proto TCP (SYN), 192.0.2.25:51514->198.51.100.20:443, NAT (192.0.2.25:51514->203.0.113.10:51514)->198.51.100.20:443, len 52",
+    "expected_fields": {
+      "program": "firewall,info",
+      "srcip": "192.0.2.25",
+      "srcport": "51514",
+      "dstip": "198.51.100.20",
+      "dstport": "443",
+      "action": "forward"
+    }
+  },
+  {
+    "name": "FortiGate accepted HTTPS traffic",
+    "source": "fortigate",
+    "line": "date=2026-09-05 time=09:18:44 devname=\"FGT-LAB\" devid=\"FGT000000000001\" type=\"traffic\" subtype=\"forward\" srcip=192.0.2.10 srcport=53144 dstip=198.51.100.30 dstport=443 action=\"accept\" service=\"HTTPS\" proto=6",
+    "expected_fields": {
+      "devname": "FGT-LAB",
+      "srcip": "192.0.2.10",
+      "srcport": "53144",
+      "dstip": "198.51.100.30",
+      "dstport": "443",
+      "action": "accept"
+    }
+  },
+  {
+    "name": "Cisco ASA outbound connection",
+    "source": "cisco-asa",
+    "line": "Sep 05 09:19:10 asa01 %ASA-6-302013: Built outbound TCP connection 12345 for outside:198.51.100.20/443 (198.51.100.20/443) to inside:192.0.2.55/53144 (203.0.113.5/53144)",
+    "expected_fields": {
+      "program": "%ASA-6-302013",
+      "action": "Built",
+      "id": "12345",
+      "srcip": "198.51.100.20",
+      "srcport": "443",
+      "dstip": "192.0.2.55",
+      "dstport": "53144"
+    }
+  },
+  {
+    "name": "nginx access log",
+    "source": "nginx",
+    "line": "198.51.100.77 - - [05/Sep/2026:09:20:11 +0000] \"GET /login HTTP/1.1\" 401 532 \"-\" \"Mozilla/5.0\"",
+    "expected_fields": {
+      "srcip": "198.51.100.77",
+      "method": "GET",
+      "url": "/login",
+      "status": "401"
+    }
+  },
+  {
+    "name": "Postfix rejected relay",
+    "source": "postfix",
+    "line": "Sep  5 09:21:02 mail01 postfix/smtpd[2841]: NOQUEUE: reject: RCPT from unknown[203.0.113.44]: 554 5.7.1 Relay access denied; from=<sender@example.test> to=<admin@example.test> proto=ESMTP helo=<badhost.example.test>",
+    "expected_fields": {
+      "program": "postfix/smtpd",
+      "srcip": "203.0.113.44",
+      "status": "554",
+      "action": "reject"
+    }
+  },
+  {
+    "name": "Windows Sysmon network connection",
+    "source": "windows-sysmon",
+    "line": "{\"EventID\":3,\"Computer\":\"win-lab-01\",\"Image\":\"C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe\",\"SourceIp\":\"192.0.2.88\",\"SourcePort\":49822,\"DestinationIp\":\"198.51.100.90\",\"DestinationPort\":443,\"Protocol\":\"tcp\"}",
+    "expected_fields": {
+      "EventID": "3",
+      "Computer": "win-lab-01",
+      "SourceIp": "192.0.2.88",
+      "SourcePort": "49822",
+      "DestinationIp": "198.51.100.90",
+      "DestinationPort": "443"
+    }
+  }
+]

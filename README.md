@@ -58,3 +58,18 @@ If your browser blocks calls from the https demo page to `http://localhost`, dow
 - JSON application log
 - CEF (Trend Micro Deep Security)
 - Custom application log (positional text)
+
+## Sample regression logs
+
+An anonymized sample corpus lives in `samples/log-samples.json`. It includes
+representative FortiGate, Cisco ASA, MikroTik, nginx, Postfix and Windows Sysmon
+logs with expected fields.
+
+Open `test.html` from a local web server to run the sample regression page:
+
+```bash
+python -m http.server 8000
+```
+
+Then visit <http://localhost:8000/test.html>. The page loads every sample and
+marks the expected field extraction green or red.
