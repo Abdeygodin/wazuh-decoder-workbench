@@ -152,6 +152,9 @@
       const fields = fieldMap(result);
       const failures = [], gaps = [], xpasses = [];
       if (!result.matched) failures.push("no generated decoder matched the line");
+      /* which stock decoder takes the line in real Wazuh (null: none) */
+      if ("stock_decoder" in sample && result.stockDecoder !== sample.stock_decoder)
+        failures.push(`stock decoder: expected ${sample.stock_decoder || "none"}, got ${result.stockDecoder || "none"}`);
 
       const expected = Object.entries(sample.expected_fields);
       /* a gap scoped to another dialect is an ordinary expectation here */
@@ -193,7 +196,7 @@
           xpassCount += r.xpasses.length;
           return renderDialect(dialect, r);
         }).join("");
-        const wazuh = sample.wazuh_4_9_2 ? `<div class="wazuh">Wazuh 4.9.2: ${escapeHtml(sample.wazuh_4_9_2)}</div>` : "";
+        const wazuh = sample.wazuh ? `<div class="wazuh">Wazuh ${escapeHtml(sample.wazuh)}</div>` : "";
         return `<tr>
           <td><strong>${escapeHtml(sample.name)}</strong><br><span>${escapeHtml(sample.source)}</span></td>
           <td><code>${escapeHtml(sample.line)}</code></td>

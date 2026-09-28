@@ -7,13 +7,34 @@
       "protocol": "TCP"
     },
     "known_gaps": [
-      { "field": "srcip", "expected": "192.0.2.25", "note": "the MAC after src-mac is detected as IPv6 and takes the srcip name" },
-      { "field": "srcport", "expected": "51514", "note": "ip:port pairs after the first one are named dstip/dstport" },
-      { "field": "dstip", "expected": "198.51.100.20", "note": "see srcip" },
-      { "field": "dstport", "expected": "443", "note": "see srcport" },
-      { "field": "action", "expected": "forward", "note": "chain names (forward/input/output) are not detected" }
+      {
+        "field": "srcip",
+        "expected": "192.0.2.25",
+        "note": "the MAC after src-mac is detected as IPv6 and takes the srcip name"
+      },
+      {
+        "field": "srcport",
+        "expected": "51514",
+        "note": "ip:port pairs after the first one are named dstip/dstport"
+      },
+      {
+        "field": "dstip",
+        "expected": "198.51.100.20",
+        "note": "see srcip"
+      },
+      {
+        "field": "dstport",
+        "expected": "443",
+        "note": "see srcport"
+      },
+      {
+        "field": "action",
+        "expected": "forward",
+        "note": "chain names (forward/input/output) are not detected"
+      }
     ],
-    "wazuh_4_9_2": "No decoder matches. The predecoder strips 'Sep  5 09:15:22 router01' but sets no program_name ('firewall,info' is not a valid one); the generated prematch still expects the timestamp and host."
+    "stock_decoder": null,
+    "wazuh": "4.14.8: no stock decoder takes it. The predecoder strips 'Sep  5 09:15:22 router01' but sets no program_name ('firewall,info' is not a valid one); the generated prematch still expects the timestamp and host, so the generated decoder does not match either."
   },
   {
     "name": "FortiGate accepted HTTPS traffic",
@@ -29,9 +50,15 @@
       "protocol": "6"
     },
     "known_gaps": [
-      { "field": "devname", "expected": "FGT-LAB", "dialect": "os", "note": "simulator bug: it treats OS_Regex \\.+ as greedy and captures up to the last quote; real Wazuh stops at the first one and extracts FGT-LAB" }
+      {
+        "field": "devname",
+        "expected": "FGT-LAB",
+        "dialect": "os",
+        "note": "simulator bug: it treats OS_Regex \\.+ as greedy and captures up to the last quote; real Wazuh stops at the first one and extracts FGT-LAB"
+      }
     ],
-    "wazuh_4_9_2": "The generated decoder matches and extracts every field, devname=FGT-LAB included."
+    "stock_decoder": "fortigate-firewall-v5",
+    "wazuh": "4.14.8: the stock fortigate-firewall-v5 decoder takes it (4.9.2 had no stock match, and the generated decoder extracted every field, devname=FGT-LAB included)."
   },
   {
     "name": "Cisco ASA outbound connection",
@@ -43,12 +70,29 @@
       "srcip": "198.51.100.20"
     },
     "known_gaps": [
-      { "field": "srcport", "expected": "443", "note": "ports after ip/ are not paired with the address (only ip:port and ip(port))" },
-      { "field": "dstip", "expected": "192.0.2.55", "note": "the mapped address in parentheses takes the dstip name" },
-      { "field": "dstport", "expected": "53144", "note": "see srcport" },
-      { "field": "action", "expected": "Built", "note": "ASA verbs (Built/Teardown) are not detected" }
+      {
+        "field": "srcport",
+        "expected": "443",
+        "note": "ports after ip/ are not paired with the address (only ip:port and ip(port))"
+      },
+      {
+        "field": "dstip",
+        "expected": "192.0.2.55",
+        "note": "the mapped address in parentheses takes the dstip name"
+      },
+      {
+        "field": "dstport",
+        "expected": "53144",
+        "note": "see srcport"
+      },
+      {
+        "field": "action",
+        "expected": "Built",
+        "note": "ASA verbs (Built/Teardown) are not detected"
+      }
     ],
-    "wazuh_4_9_2": "The stock cisco-asa decoder takes this line (src_ip=198.51.100.20, dst_ip=192.0.2.55, connection=12345 — addresses in message order, not by who initiated). The generated prematch would not match anyway: the predecoder strips 'Sep 05 09:19:10 asa01'."
+    "stock_decoder": "cisco-asa",
+    "wazuh": "4.14.8: the stock cisco-asa decoder takes it (src_ip=198.51.100.20, dst_ip=192.0.2.55, connection=12345 — addresses in message order, not by who initiated)."
   },
   {
     "name": "nginx access log",
@@ -58,12 +102,29 @@
       "srcip": "198.51.100.77"
     },
     "known_gaps": [
-      { "field": "method", "expected": "GET", "note": "the request line is kept as literal text, so the decoder only matches GET /login" },
-      { "field": "url", "expected": "/login", "note": "see method" },
-      { "field": "status", "expected": "401", "note": "the status code gets a generic fieldN name" },
-      { "field": "dstip", "expected": null, "note": "the 2026:09:20:11 part of the timestamp is detected as IPv6" }
+      {
+        "field": "method",
+        "expected": "GET",
+        "note": "the request line is kept as literal text, so the decoder only matches GET /login"
+      },
+      {
+        "field": "url",
+        "expected": "/login",
+        "note": "see method"
+      },
+      {
+        "field": "status",
+        "expected": "401",
+        "note": "the status code gets a generic fieldN name"
+      },
+      {
+        "field": "dstip",
+        "expected": null,
+        "note": "the 2026:09:20:11 part of the timestamp is detected as IPv6"
+      }
     ],
-    "wazuh_4_9_2": "The stock web-accesslog decoder takes this line (srcip, protocol=GET, url=/login, id=401)."
+    "stock_decoder": "web-accesslog",
+    "wazuh": "4.14.8: the stock web-accesslog decoder takes it (srcip, protocol=GET, url=/login, id=401)."
   },
   {
     "name": "Postfix rejected relay",
@@ -74,11 +135,24 @@
       "srcip": "203.0.113.44"
     },
     "known_gaps": [
-      { "field": "status", "expected": "554", "note": "the SMTP code gets a generic fieldN name" },
-      { "field": "action", "expected": "reject", "note": "the action detector picks 'denied' from the reason text" },
-      { "field": "user_2", "expected": "admin@example.test", "note": "the last \\S+ capture swallows the closing >" }
+      {
+        "field": "status",
+        "expected": "554",
+        "note": "the SMTP code gets a generic fieldN name"
+      },
+      {
+        "field": "action",
+        "expected": "reject",
+        "note": "the action detector picks 'denied' from the reason text"
+      },
+      {
+        "field": "user_2",
+        "expected": "admin@example.test",
+        "note": "the last \\S+ capture swallows the closing >"
+      }
     ],
-    "wazuh_4_9_2": "The stock postfix-reject decoder takes this line (srcip, id=554) — stock program_name decoders are loaded first."
+    "stock_decoder": "postfix",
+    "wazuh": "4.14.8: the stock postfix decoder takes it (postfix-reject: srcip, id=554) — stock program_name decoders load first."
   },
   {
     "name": "Windows Sysmon network connection",
@@ -93,6 +167,7 @@
       "DestinationPort": "443"
     },
     "known_gaps": [],
-    "wazuh_4_9_2": "The stock json decoder takes this line first; the extracted fields are the same."
+    "stock_decoder": "json",
+    "wazuh": "4.14.8: the stock json decoder takes it; the extracted fields are the same."
   }
 ]
