@@ -14,6 +14,7 @@
       --muted: #9aa8c7;
       --good: #45d483;
       --bad: #ff6b6b;
+      --warn: #f0b75a;
     }
     body {
       margin: 0;
@@ -71,16 +72,44 @@
       color: var(--bad);
       font-weight: 700;
     }
+    .xpass {
+      color: var(--warn);
+      font-weight: 700;
+    }
+    .gap, .wazuh {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .wazuh {
+      margin-top: 8px;
+    }
+    .dialect {
+      font: 11px ui-monospace, SFMono-Regular, Consolas, monospace;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-top: 10px;
+    }
+    .dialect:first-child {
+      margin-top: 0;
+    }
     .summary {
       margin: 18px 0;
       font-weight: 700;
+    }
+    iframe {
+      display: none;
+    }
+    @media (max-width: 700px) {
+      th:nth-child(2), td:nth-child(2) { display: none; }
     }
   </style>
 </head>
 <body>
   <main>
     <h1>Sample log regression page</h1>
-    <p>Loads anonymized sample logs and checks the fields the workbench should preserve during decoder generation.</p>
+    <p>Runs every sample through the real workbench (index.html): the decoders it generates for the line, in both regex
+      dialects, are fed to its logtest simulator. <b>expected_fields</b> must match; <b>known_gaps</b> are what an
+      analyst would expect but the workbench does not do yet — they are listed, not failed.</p>
     <div id="summary" class="summary">Loading samples...</div>
     <table>
       <thead>
@@ -93,92 +122,97 @@
       <tbody id="results"></tbody>
     </table>
   </main>
+  <iframe id="workbench" src="index.html" title="workbench under test"></iframe>
   <script>
-    const SYSLOG_RE = /^(?:<\d+>)?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s\d{2}:\d{2}:\d{2})\s+(\S+)\s+([\w%./,-]+?)(?:\[(\d+)\])?:?\s+(.*)$/;
+    const DIALECTS = ["os", "pcre2"];
 
-    function parseKeyValues(text) {
-      const out = {};
-      const re = /([A-Za-z0-9_.-]+)=("([^"]*)"|\S+)/g;
-      let match;
-      while ((match = re.exec(text)) !== null) {
-        out[match[1]] = match[3] || match[2];
-      }
-      return out;
+    /* first value per field name, plus program_name from the syslog header */
+    function fieldMap(result) {
+      const map = {};
+      if (result.programName) map.program_name = result.programName;
+      for (const [name, value] of result.fields) if (!(name in map)) map[name] = value;
+      return map;
     }
 
-    function extractFields(line) {
-      const fields = {};
-      const syslog = line.match(SYSLOG_RE);
-      const body = syslog ? syslog[5] : line;
-      if (syslog) {
-        fields.hostname = syslog[2];
-        fields.program = syslog[3];
-      }
-
-      if (line.trim().startsWith("{")) {
-        try {
-          const parsed = JSON.parse(line);
-          for (const [key, value] of Object.entries(parsed)) fields[key] = String(value);
-          return fields;
-        } catch {}
-      }
-
-      Object.assign(fields, parseKeyValues(body));
-
-      const flow = body.match(/(\d{1,3}(?:\.\d{1,3}){3})[:/](\d+)(?:->|.*\sto\s.*:)(\d{1,3}(?:\.\d{1,3}){3})[:/](\d+)/);
-      if (flow) {
-        fields.srcip ||= flow[1];
-        fields.srcport ||= flow[2];
-        fields.dstip ||= flow[3];
-        fields.dstport ||= flow[4];
-      }
-
-      const nginx = line.match(/^(\d{1,3}(?:\.\d{1,3}){3}) .*"([A-Z]+) ([^ ]+) [^"]+" (\d{3}) /);
-      if (nginx) {
-        fields.srcip = nginx[1];
-        fields.method = nginx[2];
-        fields.url = nginx[3];
-        fields.status = nginx[4];
-      }
-
-      const postfix = body.match(/(reject): .*?\[(\d{1,3}(?:\.\d{1,3}){3})\]: (\d{3}) /);
-      if (postfix) {
-        fields.action = postfix[1];
-        fields.srcip = postfix[2];
-        fields.status = postfix[3];
-      }
-
-      const action = body.match(/^(forward|Built|reject)\b/);
-      if (action) fields.action ||= action[1];
-
-      const id = body.match(/connection (\d+)/);
-      if (id) fields.id = id[1];
-
-      return fields;
+    /* expected === null means "this field must not be extracted" */
+    function holds(fields, field, expected) {
+      return expected === null ? !(field in fields) : fields[field] === String(expected);
     }
 
-    function render(samples) {
-      let passed = 0;
+    function describe(fields, field, expected) {
+      const got = field in fields ? fields[field] : "<missing>";
+      return expected === null
+        ? `${field}: expected no such field, got ${got}`
+        : `${field}: expected ${expected}, got ${got}`;
+    }
+
+    function checkSample(api, sample, dialect) {
+      const run = api.run(sample.line, dialect);
+      const result = run.results[0];
+      const fields = fieldMap(result);
+      const failures = [], gaps = [], xpasses = [];
+      if (!result.matched) failures.push("no generated decoder matched the line");
+
+      const expected = Object.entries(sample.expected_fields);
+      /* a gap scoped to another dialect is an ordinary expectation here */
+      for (const gap of sample.known_gaps || []) {
+        if (gap.dialect && gap.dialect !== dialect) expected.push([gap.field, gap.expected]);
+      }
+      for (const [field, value] of expected) {
+        if (!holds(fields, field, value)) failures.push(describe(fields, field, value));
+      }
+      for (const gap of sample.known_gaps || []) {
+        if (gap.dialect && gap.dialect !== dialect) continue;
+        if (result.matched && holds(fields, gap.field, gap.expected)) xpasses.push(gap);
+        else gaps.push(gap);
+      }
+      return { failures, gaps, xpasses };
+    }
+
+    function renderDialect(dialect, r) {
+      let html = `<div class="dialect">${dialect}</div>`;
+      if (r.failures.length) html += `<div class="fail">${r.failures.map(escapeHtml).join("<br>")}</div>`;
+      else html += `<div class="ok">PASS</div>`;
+      for (const gap of r.xpasses) {
+        html += `<div class="xpass">now works: ${escapeHtml(gap.field)} — move it to expected_fields</div>`;
+      }
+      for (const gap of r.gaps) {
+        html += `<div class="gap">known gap · ${escapeHtml(gap.field)}: ${escapeHtml(gap.note)}</div>`;
+      }
+      return html;
+    }
+
+    function render(api, samples) {
+      let checks = 0, passed = 0, gapCount = 0, xpassCount = 0;
       const rows = samples.map((sample) => {
-        const fields = extractFields(sample.line);
-        const failures = Object.entries(sample.expected_fields)
-          .filter(([key, expected]) => fields[key] !== String(expected))
-          .map(([key, expected]) => `${key}: expected ${expected}, got ${fields[key] || "<missing>"}`);
-        if (!failures.length) passed += 1;
+        const cells = DIALECTS.map((dialect) => {
+          const r = checkSample(api, sample, dialect);
+          checks += 1;
+          if (!r.failures.length) passed += 1;
+          gapCount += r.gaps.length;
+          xpassCount += r.xpasses.length;
+          return renderDialect(dialect, r);
+        }).join("");
+        const wazuh = sample.wazuh_4_9_2 ? `<div class="wazuh">Wazuh 4.9.2: ${escapeHtml(sample.wazuh_4_9_2)}</div>` : "";
         return `<tr>
-          <td><strong>${sample.name}</strong><br><span>${sample.source}</span></td>
+          <td><strong>${escapeHtml(sample.name)}</strong><br><span>${escapeHtml(sample.source)}</span></td>
           <td><code>${escapeHtml(sample.line)}</code></td>
-          <td class="${failures.length ? "fail" : "ok"}">${failures.length ? failures.join("<br>") : "PASS"}</td>
+          <td>${cells}${wazuh}</td>
         </tr>`;
       }).join("");
       document.getElementById("results").innerHTML = rows;
+      const ok = passed === checks;
       const summary = document.getElementById("summary");
-      summary.textContent = `${passed}/${samples.length} samples passed`;
-      summary.className = `summary ${passed === samples.length ? "ok" : "fail"}`;
+      summary.textContent = `${passed}/${checks} checks passed (${samples.length} samples × ${DIALECTS.length} dialects)` +
+        ` · ${gapCount} known gaps` + (xpassCount ? ` · ${xpassCount} gaps now work — update the samples` : "");
+      summary.className = `summary ${ok ? (xpassCount ? "xpass" : "ok") : "fail"}`;
+      /* machine-readable verdict for headless runs */
+      document.title = (ok ? "PASS" : "FAIL") + " · Wazuh Decoder Workbench Samples";
+      window.regressionResult = { ok, checks, passed, gaps: gapCount, xpasses: xpassCount };
     }
 
     function escapeHtml(value) {
-      return value.replace(/[&<>"']/g, (char) => ({
+      return String(value).replace(/[&<>"']/g, (char) => ({
         "&": "&amp;",
         "<": "&lt;",
         ">": "&gt;",
@@ -187,13 +221,25 @@
       }[char]));
     }
 
-    fetch("samples/log-samples.json")
-      .then((response) => response.json())
-      .then(render)
-      .catch((error) => {
-        document.getElementById("summary").textContent = `Could not load samples: ${error.message}`;
-        document.getElementById("summary").className = "summary fail";
+    function fail(message) {
+      const summary = document.getElementById("summary");
+      summary.textContent = message;
+      summary.className = "summary fail";
+      document.title = "FAIL · Wazuh Decoder Workbench Samples";
+      window.regressionResult = { ok: false, error: message };
+    }
+
+    const workbenchReady = new Promise((resolve, reject) => {
+      document.getElementById("workbench").addEventListener("load", (e) => {
+        let api = null;
+        try { api = e.target.contentWindow.WDW; } catch (err) { /* cross-origin (file://) */ }
+        api ? resolve(api) : reject(new Error("index.html did not expose window.WDW — open this page from a local web server, not file://"));
       });
+    });
+
+    Promise.all([workbenchReady, fetch("samples/log-samples.json").then((response) => response.json())])
+      .then(([api, samples]) => render(api, samples))
+      .catch((error) => fail(`Could not run the samples: ${error.message}`));
   </script>
 </body>
 </html>

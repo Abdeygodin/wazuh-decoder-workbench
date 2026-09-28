@@ -62,15 +62,26 @@ If your browser blocks calls from the https demo page to `http://localhost`, dow
 
 ## Sample regression logs
 
-An anonymized sample corpus lives in `samples/log-samples.json`. It includes
-representative FortiGate, Cisco ASA, MikroTik, nginx, Postfix and Windows Sysmon
-logs with expected fields.
+An anonymized sample corpus lives in `samples/log-samples.json`: FortiGate, Cisco ASA, MikroTik, nginx, Postfix and
+Windows Sysmon lines. `test.html` loads the real `index.html` in a hidden frame and runs every sample the way the
+Analyze button does — generate decoders, feed the line to the logtest simulator — in both regex dialects.
 
-Open `test.html` from a local web server to run the sample regression page:
+Each sample has:
+
+- `expected_fields` — what the workbench already extracts correctly; any mismatch fails the page;
+- `known_gaps` — what an analyst would expect but the workbench does not do yet, with a note why. They are listed,
+  not failed; when one starts to pass, the page asks to move it to `expected_fields`. A gap can be limited to one
+  dialect (`"dialect": "os"`); `"expected": null` means the field must not be extracted;
+- `wazuh_4_9_2` — what a real `wazuh-logtest` (Wazuh 4.9.2, stock ruleset) did with the generated decoders.
+
+Open `test.html` from a local web server (the frame is not accessible from `file://`):
 
 ```bash
 python -m http.server 8000
 ```
 
-Then visit <http://localhost:8000/test.html>. The page loads every sample and
-marks the expected field extraction green or red.
+Then visit <http://localhost:8000/test.html>. The page title starts with `PASS` or `FAIL`, and `window.regressionResult`
+holds the counts for headless runs.
+
+Adding a sample: paste an anonymized line (RFC 5737 IPs, `example.test` domains, fictional users), put the fields the
+workbench gets right into `expected_fields` and the rest into `known_gaps`.
