@@ -444,20 +444,28 @@ const TS_MONTHS = "Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec";
 
 /* Token detectors: order = priority */
 const DETECTORS = [
-  { type:"timestamp", re:new RegExp("\\b\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?\\b|\\b(?:"+TS_MONTHS+")\\s+\\d{1,2}\\s\\d{2}:\\d{2}:\\d{2}\\b","g") },
+  { type:"timestamp", re:new RegExp("\\b\\d{4}-\\d{2}-\\d{2}[T ]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?\\b|\\b(?:"+TS_MONTHS+")\\s+\\d{1,2}\\s\\d{2}:\\d{2}:\\d{2}\\b" +
+      /* web/proxy access logs: 05/Sep/2026:09:20:11 +0000 */
+      "|\\b\\d{2}/(?:"+TS_MONTHS+")/\\d{4}:\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?: [+-]\\d{4})?","g") },
   { type:"ipv4",  re:/\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b/g },
-  { type:"ipv6",  re:/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b/gi },
+  /* MAC before IPv6: 02:00:5e:00:53:10 must not become an address */
   { type:"mac",   re:/\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi },
+  /* full 8 groups or a :: — "2026:09:20:11" (a web log timestamp) is not an address */
+  { type:"ipv6",  re:/(?<![\w:])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?|::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){0,6})?)(?![\w:])/gi },
   { type:"email", re:/\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b/g },
   { type:"url",   re:/\bhttps?:\/\/[^\s"']+/g },
   { type:"sha256",re:/\b[0-9a-f]{64}\b/gi },
   { type:"sha1",  re:/\b[0-9a-f]{40}\b/gi },
   { type:"md5",   re:/\b[0-9a-f]{32}\b/gi },
   { type:"uuid",  re:/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi },
+  /* request line of web access logs: "GET /login HTTP/1.1" */
+  { type:"method", re:/(?<=")(?:GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|CONNECT|TRACE|PROPFIND)(?= \S+ HTTP\/\d)/g, fixedName:"method" },
+  { type:"path", re:/(?<="(?:GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH|CONNECT|TRACE|PROPFIND) )\S+(?= HTTP\/\d)/g, fixedName:"url" },
   { type:"user", re:/(?:password|session|publickey|key)\s+for\s+(?:invalid user\s+|illegal user\s+|user\s+)?['"]?([A-Za-z][\w.@-]*)/gi, group:1, fixedName:"dstuser" },
+  { type:"user", re:/\b(?:failed|failure|succeeded|successful|accepted|denied|rejected)\s+for\s+(?:invalid user\s+|illegal user\s+|user\s+)?['"]?([A-Za-z][\w.@-]*)/gi, group:1, fixedName:"dstuser" },
   { type:"user", re:/(?:^|[\s:])(?:user|usr|login|account)\s+['"]?([A-Za-z][\w.@-]*)/gi, group:1, fixedName:"dstuser" },
   { type:"acl", re:/\baccess-list\s+([\w.-]+)/gi, group:1, fixedName:"data" },
-  { type:"action", re:/\b(denied|permitted|accepted|rejected|dropped|blocked|allowed|granted|revoked|failed)\b/gi, fixedName:"action" },
+  { type:"action", re:/\b(denied|permitted|accepted|rejected|dropped|blocked|allowed|granted|revoked|failed|deny|permit|accept|reject|drop|block|allow|built|teardown)\b/gi, fixedName:"action" },
   { type:"protocol", re:/\b(tcp|udp|icmp|icmpv6|gre|esp|ah|sctp)\b/gi, fixedName:"protocol" },
   { type:"number", re:/(?<![\w.])\d+(?:\.\d+)?(?![\w.])/g }
 ];
@@ -470,17 +478,21 @@ function patternsFor(type, value){
         ? { os:"\\d+.\\d+", pcre:"\\d+\\.\\d+" }
         : { os:"\\d+", pcre:"\\d+" };
     case "timestamp": return { os:osTimestampPattern(value), pcre:pcreTimestampPattern(value) };
-    case "action": case "protocol": return { os:"\\w+", pcre:"\\w+" };
+    case "action": case "protocol": case "method": return { os:"\\w+", pcre:"\\w+" };
     default:       return { os:"\\S+", pcre:"\\S+" };
   }
 }
+/* seconds end in \S+ where fractions or a zone may follow (",123", ".000", "+03:00") */
 function osTimestampPattern(v){
-  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(v)) return v.includes(" ") ? "\\d+-\\d+-\\d+ \\d+:\\d+:\\d+" : "\\S+";
+  if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return "\\S+";
+  if (/^\d{4}-\d{2}-\d{2} /.test(v)) return "\\d+-\\d+-\\d+ \\d+:\\d+:\\S+";
+  if (/^\d{2}\//.test(v)) return "\\d+/\\w+/\\d+:\\d+:\\d+:\\S+" + (v.includes(" ") ? " \\S+" : "");
   return "\\w+ \\s*\\d+ \\d+:\\d+:\\d+";
 }
 function pcreTimestampPattern(v){
   if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return "\\S+";
-  if (/^\d{4}-\d{2}-\d{2} /.test(v)) return "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}";
+  if (/^\d{4}-\d{2}-\d{2} /.test(v)) return "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\S+";
+  if (/^\d{2}\//.test(v)) return "\\d{2}\\/\\w{3}\\/\\d{4}:\\d{2}:\\d{2}:\\S+" + (v.includes(" ") ? " [+-]\\d{4}" : "");
   return "\\w{3}\\s+\\d{1,2} \\d{2}:\\d{2}:\\d{2}";
 }
 
@@ -721,11 +733,17 @@ function flattenJson(obj, prefix, out){
 
 function sanitizeName(s){ return s.replace(/[^A-Za-z0-9_.-]/g, "_"); }
 
-function suggestName(msg, start, type, value, counters){
+function suggestName(msg, start, end, type, value, counters){
   const before = msg.slice(Math.max(0, start-28), start).toLowerCase();
+  const after = msg.slice(end, end + 12);
   if (type === "ipv4" || type === "ipv6"){
-    if (/(?:from|src|source|client|s_?ip)[\s:="'(]*$/.test(before)) return "srcip";
-    if (/(?:to|dst|dest|server|d_?ip)[\s:="'(]*$/.test(before)) return "dstip";
+    /* "a.b.c.d/443 (e.f.g.h/443)": the NAT view of the previous address — renamed in tokenizePlain */
+    if (/\d+\.\d+\.\d+\.\d+(?:[\/:]\d+)? \($/.test(before)) return "mapped";
+    if (/(?:from|src|source|client|s_?ip)[\s:="'(]*$/.test(before) || /\b(?:from|src|source)\s+[\w-]+:$/.test(before)) return "srcip";
+    if (/(?:to|dst|dest|server|d_?ip)[\s:="'(]*$/.test(before) || /\b(?:to|dst|dest)\s+[\w-]+:$/.test(before) ||
+        /->\s*(?:[\w-]+[\/:])?$/.test(before)) return "dstip";
+    /* "a -> b": the address before the arrow is the source */
+    if (/^(?:[:\/]\d+|\(\d+\))?\s*->/.test(after)){ counters.ip++; return "srcip"; }
     return counters.ip++ === 0 ? "srcip" : "dstip";
   }
   if (type === "number"){
@@ -737,9 +755,15 @@ function suggestName(msg, start, type, value, counters){
     if (/(?:id|session)[\s:="']*$/.test(before)) return "id";
     if (/%\w+-\d+-$/.test(before)) return "id";        /* Cisco %ASA/%FTD message ID */
     if (/%\w+-$/.test(before)) return "severity";      /* Cisco severity digit */
+    if (/http\/[\d.]+"\s*$/.test(before)) return "status";                    /* web access log */
+    if (/^\d{3}$/.test(value) && /^ [245]\.\d{1,3}\.\d{1,3}\b/.test(after)) return "status";   /* SMTP 554 5.7.1 */
     return "field" + (counters.generic++);
   }
-  if (type === "email") return "user";
+  if (type === "email"){
+    if (/(?:from|sender|src)[\s:=<"']*$/.test(before)) return "srcuser";
+    if (/(?:to|rcpt|recipient|dst)[\s:=<"']*$/.test(before)) return "dstuser";
+    return "user";
+  }
   if (type === "url") return "url";
   if (type === "mac") return "srcmac";
   if (type === "sha256" || type === "sha1" || type === "md5") return type;
@@ -761,8 +785,8 @@ function tokenizePlain(msg){
       let start = det.group ? m.index + m[0].indexOf(value) : m.index;
       let end = start + value.length;
       if (det.re.lastIndex === m.index) det.re.lastIndex++;
-      /* "user information", "user name" etc. — not actual usernames */
-      if (det.type === "user" && /^(?:information|info|name|data|id|found|unknown|null|not|is|was|does|account)$/i.test(value)) continue;
+      /* "user information", "login failed" etc. — not actual usernames */
+      if (det.type === "user" && /^(?:information|info|name|data|id|found|unknown|null|not|is|was|does|account|failed|failure|success|successful|succeeded|ok|attempt|attempts|denied|incorrect|invalid|disabled|locked|expired|logged|login|logout|as|to|from|with|by|of|in|out|for|and|or|the)$/i.test(value)) continue;
       let free = true;
       for (let i = start; i < end; i++) if (taken[i]){ free = false; break; }
       if (!free) continue;
@@ -773,16 +797,25 @@ function tokenizePlain(msg){
   spans.sort((a,b) => a.start - b.start);
   const tokens = spans.map(s => ({
     ...s,
-    name: s.fixedName || suggestName(msg, s.start, s.type, s.value, counters),
+    name: s.fixedName || suggestName(msg, s.start, s.end, s.type, s.value, counters),
     include: s.type !== "timestamp"
   }));
-  /* port right after an IP: ip(port) or ip:port (Cisco ASA/FTD style) */
+  /* NAT view in parentheses: named after the address it follows (mapped_srcip, mapped_dstip) */
+  tokens.forEach((t, i) => {
+    if (t.name !== "mapped") return;
+    const prev = tokens.slice(0, i).reverse().find(p => p.type === "ipv4" || p.type === "ipv6");
+    t.name = prev && /ip$/.test(prev.name) ? "mapped_" + prev.name.replace(/^mapped_/, "") : "dstip";
+  });
+  /* port right after an IP: ip(port), ip:port, or ip/port (Cisco ASA). After "/" it is a port only when it
+     cannot be a CIDR mask, or the address follows an interface name ("outside:") or "(" */
   for (let i = 1; i < tokens.length; i++){
     const t = tokens[i], p = tokens[i-1];
+    const sep = msg[t.start-1];
     if (t.type === "number" && /^field\d+$/.test(t.name) &&
         p.type === "ipv4" && p.end === t.start - 1 &&
-        (msg[t.start-1] === "(" || msg[t.start-1] === ":")){
-      t.name = p.name === "dstip" ? "dstport" : "srcport";
+        (sep === "(" || sep === ":" ||
+         (sep === "/" && (Number(t.value) > 32 || /[:(]$/.test(msg.slice(0, p.start)))))){
+      t.name = /ip$/.test(p.name) ? p.name.replace(/ip$/, "port") : "srcport";
     }
   }
   return tokens;
@@ -855,6 +888,14 @@ function dedupeNames(tokens){
   });
 }
 
+/* The regex ends at the last selected field. When that field is a \S+ (user, email…), the character
+   right after it must follow in the regex — otherwise "to=<(\S+)" captures "admin@example.test>" */
+function closingDelimiter(t, msg, pos, esc, pat){
+  if (!/\\S\+$/.test(pat(t))) return "";
+  const c = msg.charAt(pos);
+  return c && /[^\s\w]/.test(c) ? esc(c) : "";
+}
+
 function buildPositional(d){
   const name = decoderName();
   const all = dedupeNames(state.tokens);
@@ -874,6 +915,7 @@ function buildPositional(d){
     rx += t.include ? "(" + pat(t) + ")" : pat(t);
     pos = t.end;
   }
+  if (lastInc >= 0) rx += closingDelimiter(all[lastInc], state.msg, pos, esc, pat);
 
   /* parent decoder */
   let parentOpen, parentMatchInfo;
@@ -1053,6 +1095,8 @@ function buildPositionalMulti(d){
       pm += pat(t);
       pos = t.end;
     }
+    const tail = closingDelimiter(all[lastInc], v.msg, pos, esc, pat);
+    rx += tail; pm += tail;
     const dup = children.find(c => c.pm === pm);
     if (dup){
       notes.push(`Variant "${v.slug}" looks the same as "${dup.v.slug}" up to its last selected field — its lines are decoded by "${name}-${dup.v.slug}". Select a field further along the line to tell them apart.`);
@@ -1253,7 +1297,7 @@ function simulateLine(line, sim, rules){
 
 /* ---------- rendering ---------- */
 
-const TYPE_LABELS = { ipv4:"IPv4", ipv6:"IPv6", mac:"MAC", email:"email", url:"URL", sha256:"SHA-256", sha1:"SHA-1", md5:"MD5", uuid:"UUID", number:"number", user:"user", acl:"ACL", action:"action", protocol:"proto", timestamp:"time", string:"string", json:"json" };
+const TYPE_LABELS = { method:"method", path:"path", ipv4:"IPv4", ipv6:"IPv6", mac:"MAC", email:"email", url:"URL", sha256:"SHA-256", sha1:"SHA-1", md5:"MD5", uuid:"UUID", number:"number", user:"user", acl:"ACL", action:"action", protocol:"proto", timestamp:"time", string:"string", json:"json" };
 
 function highlightXML(xml){
   let h = htmlEscape(xml);

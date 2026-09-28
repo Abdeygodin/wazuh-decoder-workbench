@@ -4,33 +4,18 @@
     "source": "mikrotik",
     "line": "Sep  5 09:15:22 router01 firewall,info forward: in:bridge-lan out:pppoe-wan, src-mac 02:00:5e:00:53:10, proto TCP (SYN), 192.0.2.25:51514->198.51.100.20:443, NAT (192.0.2.25:51514->203.0.113.10:51514)->198.51.100.20:443, len 52",
     "expected_fields": {
-      "protocol": "TCP"
+      "protocol": "TCP",
+      "srcip": "192.0.2.25",
+      "srcport": "51514",
+      "dstip": "198.51.100.20",
+      "dstport": "443",
+      "srcmac": "02:00:5e:00:53:10"
     },
     "known_gaps": [
       {
-        "field": "srcip",
-        "expected": "192.0.2.25",
-        "note": "the MAC after src-mac is detected as IPv6 and takes the srcip name"
-      },
-      {
-        "field": "srcport",
-        "expected": "51514",
-        "note": "ip:port pairs after the first one are named dstip/dstport"
-      },
-      {
-        "field": "dstip",
-        "expected": "198.51.100.20",
-        "note": "see srcip"
-      },
-      {
-        "field": "dstport",
-        "expected": "443",
-        "note": "see srcport"
-      },
-      {
         "field": "action",
         "expected": "forward",
-        "note": "chain names (forward/input/output) are not detected"
+        "note": "the chain name before the colon (forward/input/output) is not detected — and it is a chain, not quite an action"
       }
     ],
     "stock_decoder": null,
@@ -67,30 +52,15 @@
     "expected_fields": {
       "id": "302013",
       "protocol": "TCP",
-      "srcip": "198.51.100.20"
+      "srcip": "198.51.100.20",
+      "srcport": "443",
+      "dstip": "192.0.2.55",
+      "dstport": "53144",
+      "action": "Built",
+      "mapped_srcip": "198.51.100.20",
+      "mapped_dstip": "203.0.113.5"
     },
-    "known_gaps": [
-      {
-        "field": "srcport",
-        "expected": "443",
-        "note": "ports after ip/ are not paired with the address (only ip:port and ip(port))"
-      },
-      {
-        "field": "dstip",
-        "expected": "192.0.2.55",
-        "note": "the mapped address in parentheses takes the dstip name"
-      },
-      {
-        "field": "dstport",
-        "expected": "53144",
-        "note": "see srcport"
-      },
-      {
-        "field": "action",
-        "expected": "Built",
-        "note": "ASA verbs (Built/Teardown) are not detected"
-      }
-    ],
+    "known_gaps": [],
     "stock_decoder": "cisco-asa",
     "wazuh": "4.14.8: the stock cisco-asa decoder takes it (src_ip=198.51.100.20, dst_ip=192.0.2.55, connection=12345 — addresses in message order, not by who initiated)."
   },
@@ -99,30 +69,13 @@
     "source": "nginx",
     "line": "198.51.100.77 - - [05/Sep/2026:09:20:11 +0000] \"GET /login HTTP/1.1\" 401 532 \"-\" \"Mozilla/5.0\"",
     "expected_fields": {
-      "srcip": "198.51.100.77"
+      "srcip": "198.51.100.77",
+      "method": "GET",
+      "url": "/login",
+      "status": "401",
+      "dstip": null
     },
-    "known_gaps": [
-      {
-        "field": "method",
-        "expected": "GET",
-        "note": "the request line is kept as literal text, so the decoder only matches GET /login"
-      },
-      {
-        "field": "url",
-        "expected": "/login",
-        "note": "see method"
-      },
-      {
-        "field": "status",
-        "expected": "401",
-        "note": "the status code gets a generic fieldN name"
-      },
-      {
-        "field": "dstip",
-        "expected": null,
-        "note": "the 2026:09:20:11 part of the timestamp is detected as IPv6"
-      }
-    ],
+    "known_gaps": [],
     "stock_decoder": "web-accesslog",
     "wazuh": "4.14.8: the stock web-accesslog decoder takes it (srcip, protocol=GET, url=/login, id=401)."
   },
@@ -132,25 +85,13 @@
     "line": "Sep  5 09:21:02 mail01 postfix/smtpd[2841]: NOQUEUE: reject: RCPT from unknown[203.0.113.44]: 554 5.7.1 Relay access denied; from=<sender@example.test> to=<admin@example.test> proto=ESMTP helo=<badhost.example.test>",
     "expected_fields": {
       "program_name": "postfix/smtpd",
-      "srcip": "203.0.113.44"
+      "srcip": "203.0.113.44",
+      "status": "554",
+      "action": "reject",
+      "srcuser": "sender@example.test",
+      "dstuser": "admin@example.test"
     },
-    "known_gaps": [
-      {
-        "field": "status",
-        "expected": "554",
-        "note": "the SMTP code gets a generic fieldN name"
-      },
-      {
-        "field": "action",
-        "expected": "reject",
-        "note": "the action detector picks 'denied' from the reason text"
-      },
-      {
-        "field": "user_2",
-        "expected": "admin@example.test",
-        "note": "the last \\S+ capture swallows the closing >"
-      }
-    ],
+    "known_gaps": [],
     "stock_decoder": "postfix",
     "wazuh": "4.14.8: the stock postfix decoder takes it (postfix-reject: srcip, id=554) — stock program_name decoders load first."
   },
@@ -169,5 +110,33 @@
     "known_gaps": [],
     "stock_decoder": "json",
     "wazuh": "4.14.8: the stock json decoder takes it; the extracted fields are the same."
+  },
+  {
+    "name": "Application login failure (proftpd timestamp)",
+    "source": "app-login-failure",
+    "line": "2015-04-16 21:51:02,805 srv01 myftpd[123]: login failed for bob from 198.51.100.17",
+    "expected_fields": {
+      "program_name": "myftpd",
+      "action": "failed",
+      "dstuser": "bob",
+      "srcip": "198.51.100.17"
+    },
+    "known_gaps": [],
+    "stock_decoder": null,
+    "wazuh": "4.14.8: no stock decoder takes it; the generated decoder extracts the expected fields."
+  },
+  {
+    "name": "IPv6 connection",
+    "source": "ipv6-app",
+    "line": "Jun 24 11:24:16 srv01 myapp: connection from 2001:db8::1 port 443 to fe80::1",
+    "expected_fields": {
+      "program_name": "myapp",
+      "srcip": "2001:db8::1",
+      "srcport": "443",
+      "dstip": "fe80::1"
+    },
+    "known_gaps": [],
+    "stock_decoder": null,
+    "wazuh": "4.14.8: no stock decoder takes it; the generated decoder extracts the expected fields."
   }
 ]
