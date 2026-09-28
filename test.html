@@ -133,6 +133,14 @@
       <thead><tr><th>Line</th><th>Result</th></tr></thead>
       <tbody id="preResults"></tbody>
     </table>
+    <h2>OS_Regex engine</h2>
+    <p>Random patterns and lines from <b>samples/os-regex-cases.json</b>: whether a real Wazuh matched them as a
+      &lt;prematch&gt;, what was left after the match, and what the groups captured as a &lt;regex&gt;.</p>
+    <div id="osSummary" class="summary">Loading…</div>
+    <table>
+      <thead><tr><th>Pattern · line</th><th>Result</th></tr></thead>
+      <tbody id="osResults"></tbody>
+    </table>
   </main>
   <iframe id="workbench" src="index.html" title="workbench under test"></iframe>
   <script>
@@ -217,8 +225,37 @@
       return { checks: doc.cases.length, passed };
     }
 
-    function render(api, samples, preCases) {
+    /* failed rows only, like the pre-decoding table */
+    function renderOsRegex(api, doc) {
+      const norm = (v) => (v === undefined || v === null ? "" : v);
+      let passed = 0;
+      const rows = [];
+      for (const c of doc.cases) {
+        const pm = api.osRegex(c.pattern, c.line, false);
+        const failures = [];
+        if (pm.matched !== c.matched) failures.push(`match: expected ${c.matched}, got ${pm.matched}`);
+        else if (c.matched) {
+          if (pm.rest !== norm(c.rest)) failures.push(`after the match: expected "${norm(c.rest)}", got "${pm.rest}"`);
+          const rx = api.osRegex(c.pattern, c.line, true);
+          c.caps.forEach((cap, i) => {
+            const got = norm(rx.matched ? rx.caps[i] : null);
+            if (got !== norm(cap)) failures.push(`group ${i + 1}: expected "${norm(cap)}", got "${got}"`);
+          });
+        }
+        if (!failures.length) { passed += 1; continue; }
+        rows.push(`<tr><td><code>${escapeHtml(c.pattern)}</code><br><code>${escapeHtml(c.line)}</code></td><td class="fail">${failures.map(escapeHtml).join("<br>")}</td></tr>`);
+      }
+      document.getElementById("osResults").innerHTML = rows.join("") ||
+        `<tr><td colspan="2" class="ok">all ${doc.cases.length} cases match Wazuh ${escapeHtml(doc.wazuh)}</td></tr>`;
+      const summary = document.getElementById("osSummary");
+      summary.textContent = `${passed}/${doc.cases.length} cases behave like Wazuh ${doc.wazuh}'s OS_Regex`;
+      summary.className = `summary ${passed === doc.cases.length ? "ok" : "fail"}`;
+      return { checks: doc.cases.length, passed };
+    }
+
+    function render(api, samples, preCases, osCases) {
       const pre = renderPreDecoding(api, preCases);
+      const os = renderOsRegex(api, osCases);
       let checks = 0, passed = 0, gapCount = 0, xpassCount = 0;
       const rows = samples.map((sample) => {
         const cells = DIALECTS.map((dialect) => {
@@ -237,7 +274,7 @@
         </tr>`;
       }).join("");
       document.getElementById("results").innerHTML = rows;
-      const ok = passed === checks && pre.passed === pre.checks;
+      const ok = passed === checks && pre.passed === pre.checks && os.passed === os.checks;
       const summary = document.getElementById("summary");
       summary.textContent = `${passed}/${checks} checks passed (${samples.length} samples × ${DIALECTS.length} dialects)` +
         ` · ${gapCount} known gaps` + (xpassCount ? ` · ${xpassCount} gaps now work — update the samples` : "");
@@ -245,7 +282,7 @@
       /* machine-readable verdict for headless runs */
       document.title = (ok ? "PASS" : "FAIL") + " · Wazuh Decoder Workbench Samples";
       window.regressionResult = { ok, checks, passed, gaps: gapCount, xpasses: xpassCount,
-        preDecoding: { checks: pre.checks, passed: pre.passed } };
+        preDecoding: { checks: pre.checks, passed: pre.passed }, osRegex: { checks: os.checks, passed: os.passed } };
     }
 
     function escapeHtml(value) {
@@ -276,8 +313,9 @@
 
     Promise.all([workbenchReady,
                  fetch("samples/log-samples.json").then((response) => response.json()),
-                 fetch("samples/predecoder-cases.json").then((response) => response.json())])
-      .then(([api, samples, preCases]) => render(api, samples, preCases))
+                 fetch("samples/predecoder-cases.json").then((response) => response.json()),
+                 fetch("samples/os-regex-cases.json").then((response) => response.json())])
+      .then(([api, samples, preCases, osCases]) => render(api, samples, preCases, osCases))
       .catch((error) => fail(`Could not run the samples: ${error.message}`));
   </script>
 </body>
