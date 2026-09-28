@@ -12,7 +12,7 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
 ## Features
 
 - **Automatic format detection** — JSON, key=value (FortiGate-style), CEF, and plain positional text, after the same pre-decoding Wazuh does: a port of its pre-decoder (`OS_CleanMSG`) strips the timestamp formats Wazuh knows (syslog, ISO 8601, proftpd, xferlog, snort, suricata, apache, squid, macOS) and takes the hostname and `program_name` the way Wazuh does — so `%ASA-…` or `firewall,info` are not program names, and RFC 5424 is not parsed (Wazuh does not parse it either). A leading `<PRI>` is removed, as Wazuh's syslog listener does.
-- **Token recognition** — IPs, ports, users (by context: `user`, `from`, `port`…), emails, URLs, MD5/SHA1/SHA256 hashes, UUIDs, MAC addresses, timestamps. Each token gets a suggested standard Wazuh field name (`srcip`, `dstuser`, `srcport`, …).
+- **Token recognition** — IPv4/IPv6 addresses and ports (`ip:port`, `ip(port)`, Cisco `iface:ip/port`), direction from context (`from`/`to`, `src`/`dst`, `a -> b`), NAT addresses in parentheses (`mapped_srcip`), users (`user x`, `failed for x`, `from=<…>`/`to=<…>`), web request lines (`method`, `url`, `status`), SMTP status codes, actions (`Deny`, `Built`, `reject`, `failed`…), emails, URLs, MD5/SHA1/SHA256 hashes, UUIDs, MAC addresses, timestamps (syslog, ISO 8601, web access logs). Each token gets a suggested standard Wazuh field name (`srcip`, `dstuser`, `srcport`, …).
 - **Fully editable mapping** — toggle fields on/off and rename them; the XML regenerates live.
 - **Two regex dialects**:
   - classic **OS_Regex** (works on every Wazuh version, with its quirks accounted for — e.g. a narrow `\w+` instead of the greedy `\.+` for quoted values);
