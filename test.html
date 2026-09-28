@@ -31,6 +31,10 @@
       margin: 0 0 8px;
       font-size: 28px;
     }
+    h2 {
+      margin: 36px 0 8px;
+      font-size: 20px;
+    }
     p {
       margin: 0 0 22px;
       color: var(--muted);
@@ -121,6 +125,14 @@
       </thead>
       <tbody id="results"></tbody>
     </table>
+    <h2>Pre-decoding</h2>
+    <p>Lines from <b>samples/predecoder-cases.json</b>: the program_name and message that a real wazuh-logtest reported
+      for each, against the workbench's port of Wazuh's pre-decoder.</p>
+    <div id="preSummary" class="summary">Loading…</div>
+    <table>
+      <thead><tr><th>Line</th><th>Result</th></tr></thead>
+      <tbody id="preResults"></tbody>
+    </table>
   </main>
   <iframe id="workbench" src="index.html" title="workbench under test"></iframe>
   <script>
@@ -185,7 +197,28 @@
       return html;
     }
 
-    function render(api, samples) {
+    /* failed rows only — 100+ passing lines would bury the rest */
+    function renderPreDecoding(api, doc) {
+      let passed = 0;
+      const rows = [];
+      for (const c of doc.cases) {
+        const got = api.preDecode(c.line);
+        const failures = [];
+        if (got.programName !== c.program_name) failures.push(`program_name: expected ${c.program_name || "none"}, got ${got.programName || "none"}`);
+        if (got.msg !== c.msg) failures.push(`message: expected "${c.msg}", got "${got.msg}"`);
+        if (!failures.length) { passed += 1; continue; }
+        rows.push(`<tr><td><code>${escapeHtml(c.line)}</code></td><td class="fail">${failures.map(escapeHtml).join("<br>")}</td></tr>`);
+      }
+      document.getElementById("preResults").innerHTML = rows.join("") ||
+        `<tr><td colspan="2" class="ok">all ${doc.cases.length} lines match Wazuh ${escapeHtml(doc.wazuh)}</td></tr>`;
+      const summary = document.getElementById("preSummary");
+      summary.textContent = `${passed}/${doc.cases.length} lines pre-decoded like Wazuh ${doc.wazuh}`;
+      summary.className = `summary ${passed === doc.cases.length ? "ok" : "fail"}`;
+      return { checks: doc.cases.length, passed };
+    }
+
+    function render(api, samples, preCases) {
+      const pre = renderPreDecoding(api, preCases);
       let checks = 0, passed = 0, gapCount = 0, xpassCount = 0;
       const rows = samples.map((sample) => {
         const cells = DIALECTS.map((dialect) => {
@@ -204,14 +237,15 @@
         </tr>`;
       }).join("");
       document.getElementById("results").innerHTML = rows;
-      const ok = passed === checks;
+      const ok = passed === checks && pre.passed === pre.checks;
       const summary = document.getElementById("summary");
       summary.textContent = `${passed}/${checks} checks passed (${samples.length} samples × ${DIALECTS.length} dialects)` +
         ` · ${gapCount} known gaps` + (xpassCount ? ` · ${xpassCount} gaps now work — update the samples` : "");
       summary.className = `summary ${ok ? (xpassCount ? "xpass" : "ok") : "fail"}`;
       /* machine-readable verdict for headless runs */
       document.title = (ok ? "PASS" : "FAIL") + " · Wazuh Decoder Workbench Samples";
-      window.regressionResult = { ok, checks, passed, gaps: gapCount, xpasses: xpassCount };
+      window.regressionResult = { ok, checks, passed, gaps: gapCount, xpasses: xpassCount,
+        preDecoding: { checks: pre.checks, passed: pre.passed } };
     }
 
     function escapeHtml(value) {
@@ -240,8 +274,10 @@
       });
     });
 
-    Promise.all([workbenchReady, fetch("samples/log-samples.json").then((response) => response.json())])
-      .then(([api, samples]) => render(api, samples))
+    Promise.all([workbenchReady,
+                 fetch("samples/log-samples.json").then((response) => response.json()),
+                 fetch("samples/predecoder-cases.json").then((response) => response.json())])
+      .then(([api, samples, preCases]) => render(api, samples, preCases))
       .catch((error) => fail(`Could not run the samples: ${error.message}`));
   </script>
 </body>
