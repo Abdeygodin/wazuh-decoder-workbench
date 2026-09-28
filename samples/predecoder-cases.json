@@ -1,0 +1,516 @@
+{
+ "wazuh": "4.14.8",
+ "note": "program_name and the message the decoders see, as reported by a real wazuh-logtest (catch-all decoders loaded before the stock ones). Lines with a <PRI> prefix are left out: remoted strips it, wazuh-logtest does not.",
+ "cases": [
+  {
+   "line": "Sep  5 09:15:22 router01 firewall,info forward: in:bridge-lan out:pppoe-wan, len 52",
+   "program_name": null,
+   "msg": "firewall,info forward: in:bridge-lan out:pppoe-wan, len 52"
+  },
+  {
+   "line": "Sep 05 09:19:10 asa01 %ASA-6-302013: Built outbound TCP connection 12345 for outside:198.51.100.20/443",
+   "program_name": null,
+   "msg": "%ASA-6-302013: Built outbound TCP connection 12345 for outside:198.51.100.20/443"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 sshd[2742]: Failed password for root from 192.0.2.4 port 2222 ssh2",
+   "program_name": "sshd",
+   "msg": "Failed password for root from 192.0.2.4 port 2222 ssh2"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 sshd[2742] Failed password without colon",
+   "program_name": "sshd",
+   "msg": "Failed password without colon"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 sshd[27x42]: weird pid",
+   "program_name": null,
+   "msg": "sshd[27x42]: weird pid"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 sshd:no space after colon",
+   "program_name": "sshd",
+   "msg": "no space after colon"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 sshd: [ID 800047 auth.info] Accepted publickey for bob",
+   "program_name": "sshd",
+   "msg": "Accepted publickey for bob"
+  },
+  {
+   "line": "Jun 24 11:24:16 sshd: Solaris style no hostname",
+   "program_name": "sshd",
+   "msg": "Solaris style no hostname"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01.example.test app-name_1.2/x@y: dotted host and odd program",
+   "program_name": "app-name_1.2/x@y",
+   "msg": "dotted host and odd program"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 my app: program with space",
+   "program_name": null,
+   "msg": "my app: program with space"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 pam_unix(sshd:auth): authentication failure; user=root",
+   "program_name": "pam_unix(sshd",
+   "msg": "auth): authentication failure; user=root"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 kernel: [12345.678901] IN=eth0 OUT= SRC=203.0.113.5",
+   "program_name": "kernel",
+   "msg": "[12345.678901] IN=eth0 OUT= SRC=203.0.113.5"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 auth|security:info sshd: AIX style message",
+   "program_name": "sshd",
+   "msg": "AIX style message"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 auth|security:info sshd[123]: AIX style with pid",
+   "program_name": "sshd",
+   "msg": "AIX style with pid"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01: host followed by colon",
+   "program_name": "srv01",
+   "msg": "host followed by colon"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01",
+   "program_name": null,
+   "msg": "srv01"
+  },
+  {
+   "line": "Jun 24 11:24:16  srv01 sshd: two spaces before host",
+   "program_name": "sshd",
+   "msg": "two spaces before host"
+  },
+  {
+   "line": "Jun  4 11:24:16 srv01 sshd: single digit day",
+   "program_name": "sshd",
+   "msg": "single digit day"
+  },
+  {
+   "line": "2026 Sep 05 09:30:10 srv01 sshd: year first",
+   "program_name": "sshd",
+   "msg": "year first"
+  },
+  {
+   "line": "2015-04-16 21:51:02,805 srv01 proftpd[123]: proftpd comma format",
+   "program_name": "proftpd",
+   "msg": "proftpd comma format"
+  },
+  {
+   "line": "2007-06-14T15:48:55-04:00 srv01 sshd: syslog-ng isodate",
+   "program_name": "sshd",
+   "msg": "syslog-ng isodate"
+  },
+  {
+   "line": "2022-12-19T15:02:53.288+00:00 srv01 sshd[42]: isodate millis",
+   "program_name": "sshd",
+   "msg": "isodate millis"
+  },
+  {
+   "line": "2009-05-22T09:36:46.214994-07:00 srv01 sshd: rsyslog micros",
+   "program_name": "sshd",
+   "msg": "rsyslog micros"
+  },
+  {
+   "line": "2026-09-05T09:28:10.123Z INFO  auth-service login ok user=carol",
+   "program_name": null,
+   "msg": "login ok user=carol"
+  },
+  {
+   "line": "2026-09-05T09:28:10Z srv01 app: plain Z no fraction",
+   "program_name": null,
+   "msg": "2026-09-05T09:28:10Z srv01 app: plain Z no fraction"
+  },
+  {
+   "line": "2021-04-21 10:16:09.404756-0700 srv01 macos[1]: ULS syslog output",
+   "program_name": "macos",
+   "msg": "ULS syslog output"
+  },
+  {
+   "line": "2026-07-11 10:21:04 WARN payment-gw: transaction declined",
+   "program_name": null,
+   "msg": "2026-07-11 10:21:04 WARN payment-gw: transaction declined"
+  },
+  {
+   "line": "Mon Apr 17 18:27:14 2006 1 192.0.2.130 5 /tmp/file b _ o r user ftp 0 * c",
+   "program_name": null,
+   "msg": "1 192.0.2.130 5 /tmp/file b _ o r user ftp 0 * c"
+  },
+  {
+   "line": "01/28-09:13:16.240702  [**] [1:2003:8] snort alert",
+   "program_name": null,
+   "msg": "[**] [1:2003:8] snort alert"
+  },
+  {
+   "line": "01/28/1979-09:13:16.240702  [**] [1:2003:8] suricata alert",
+   "program_name": null,
+   "msg": "[**] [1:2003:8] suricata alert"
+  },
+  {
+   "line": "[Fri Feb 11 18:06:35 2004] [warn] apache warning here",
+   "program_name": null,
+   "msg": "[warn] apache warning here"
+  },
+  {
+   "line": "[Time 2006.12.28 15:53:55 UTC] [Facility auth] [Sender sshd] [PID 483] [Message error: PAM: Authentication failure for bob] [Level 3] [Host macbook]",
+   "program_name": "sshd",
+   "msg": "error: PAM: Authentication failure for bob"
+  },
+  {
+   "line": "1725527000.123    120 192.0.2.50 TCP_MISS/200 1234 GET http://example.test/ - HIER_DIRECT/203.0.113.20 text/html",
+   "program_name": null,
+   "msg": "120 192.0.2.50 TCP_MISS/200 1234 GET http://example.test/ - HIER_DIRECT/203.0.113.20 text/html"
+  },
+  {
+   "line": "1140804070.368  11623 192.0.2.51 TCP_MISS/200 1234 GET http://example.test/ - DIRECT/1.2.3.4 text/html",
+   "program_name": null,
+   "msg": "11623 192.0.2.51 TCP_MISS/200 1234 GET http://example.test/ - DIRECT/1.2.3.4 text/html"
+  },
+  {
+   "line": "hello world this is a random line",
+   "program_name": null,
+   "msg": "hello world this is a random line"
+  },
+  {
+   "line": "{\"a\":1,\"b\":\"x\"}",
+   "program_name": null,
+   "msg": "{\"a\":1,\"b\":\"x\"}"
+  },
+  {
+   "line": "date=2026-09-05 time=09:18:44 devname=\"FGT-LAB\" srcip=192.0.2.10",
+   "program_name": null,
+   "msg": "date=2026-09-05 time=09:18:44 devname=\"FGT-LAB\" srcip=192.0.2.10"
+  },
+  {
+   "line": "CEF:0|Vendor|Product|1.0|100|Name|3|src=192.0.2.1",
+   "program_name": null,
+   "msg": "CEF:0|Vendor|Product|1.0|100|Name|3|src=192.0.2.1"
+  },
+  {
+   "line": "%FTD-4-106103: access-list X denied tcp for user 'u' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670)",
+   "program_name": null,
+   "msg": "%FTD-4-106103: access-list X denied tcp for user 'u' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670)"
+  },
+  {
+   "line": "Sep  5 09:25:00 router01 1234: *Sep  5 09:25:00.123: %SEC-6-IPACCESSLOGP: list 101 denied tcp",
+   "program_name": "1234",
+   "msg": "*Sep  5 09:25:00.123: %SEC-6-IPACCESSLOGP: list 101 denied tcp"
+  },
+  {
+   "line": "Mär 02 17:30:52 srv01 sshd: umlaut month",
+   "program_name": "sshd",
+   "msg": "umlaut month"
+  },
+  {
+   "line": "Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2",
+   "program_name": "sshd",
+   "msg": "Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2"
+  },
+  {
+   "line": "Jun 24 11:25:02 srv01 sshd[2811]: Accepted password for deploy from 10.0.0.5 port 51102 ssh2",
+   "program_name": "sshd",
+   "msg": "Accepted password for deploy from 10.0.0.5 port 51102 ssh2"
+  },
+  {
+   "line": "Jun 24 11:26:11 srv01 sshd[2903]: Connection closed by 10.0.0.9 port 40404 [preauth]",
+   "program_name": "sshd",
+   "msg": "Connection closed by 10.0.0.9 port 40404 [preauth]"
+  },
+  {
+   "line": "Jun 24 11:27:01 srv01 sudo:   alice : TTY=pts/0 ; PWD=/home/alice ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx",
+   "program_name": "sudo",
+   "msg": "  alice : TTY=pts/0 ; PWD=/home/alice ; USER=root ; COMMAND=/usr/bin/systemctl restart nginx"
+  },
+  {
+   "line": "Jun 24 11:27:05 srv01 su[3001]: pam_unix(su:session): session opened for user root by alice(uid=1000)",
+   "program_name": "su",
+   "msg": "pam_unix(su:session): session opened for user root by alice(uid=1000)"
+  },
+  {
+   "line": "Jun 24 11:28:00 srv01 CRON[3100]: (root) CMD (/usr/local/bin/backup.sh)",
+   "program_name": "CRON",
+   "msg": "(root) CMD (/usr/local/bin/backup.sh)"
+  },
+  {
+   "line": "Jun 24 11:28:10 srv01 systemd[1]: Started Daily apt download activities.",
+   "program_name": "systemd",
+   "msg": "Started Daily apt download activities."
+  },
+  {
+   "line": "Jun 24 11:28:20 srv01 kernel: [12345.678901] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.5 DST=192.0.2.10 LEN=60 TOS=0x00 PREC=0x00 TTL=52 ID=0 DF PROTO=TCP SPT=51515 DPT=22 WINDOW=64240 RES=0x00 SYN URGP=0",
+   "program_name": "kernel",
+   "msg": "[12345.678901] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.5 DST=192.0.2.10 LEN=60 TOS=0x00 PREC=0x00 TTL=52 ID=0 DF PROTO=TCP SPT=51515 DPT=22 WINDOW=64240 RES=0x00 SYN URGP=0"
+  },
+  {
+   "line": "Jun 24 11:28:21 srv01 kernel: [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.6 DST=192.0.2.10 LEN=40 PROTO=TCP SPT=4444 DPT=23 WINDOW=1024 SYN URGP=0",
+   "program_name": "kernel",
+   "msg": "[UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55 SRC=203.0.113.6 DST=192.0.2.10 LEN=40 PROTO=TCP SPT=4444 DPT=23 WINDOW=1024 SYN URGP=0"
+  },
+  {
+   "line": "type=USER_LOGIN msg=audit(1719228500.123:456): pid=3200 uid=0 auid=1000 ses=3 msg='op=login id=1000 exe=\"/usr/sbin/sshd\" hostname=203.0.113.7 addr=203.0.113.7 terminal=ssh res=failed'",
+   "program_name": null,
+   "msg": "type=USER_LOGIN msg=audit(1719228500.123:456): pid=3200 uid=0 auid=1000 ses=3 msg='op=login id=1000 exe=\"/usr/sbin/sshd\" hostname=203.0.113.7 addr=203.0.113.7 terminal=ssh res=failed'"
+  },
+  {
+   "line": "198.51.100.77 - - [05/Sep/2026:09:20:11 +0000] \"GET /login HTTP/1.1\" 401 532 \"-\" \"Mozilla/5.0\"",
+   "program_name": null,
+   "msg": "198.51.100.77 - - [05/Sep/2026:09:20:11 +0000] \"GET /login HTTP/1.1\" 401 532 \"-\" \"Mozilla/5.0\""
+  },
+  {
+   "line": "192.0.2.44 - - [05/Sep/2026:09:21:11 +0000] \"POST /wp-login.php HTTP/1.1\" 200 1532 \"-\" \"curl/8.0\"",
+   "program_name": null,
+   "msg": "192.0.2.44 - - [05/Sep/2026:09:21:11 +0000] \"POST /wp-login.php HTTP/1.1\" 200 1532 \"-\" \"curl/8.0\""
+  },
+  {
+   "line": "2026/09/05 09:22:01 [error] 1234#1234: *5 open() \"/usr/share/nginx/html/favicon.ico\" failed (2: No such file or directory), client: 198.51.100.8, server: example.test, request: \"GET /favicon.ico HTTP/1.1\"",
+   "program_name": null,
+   "msg": "2026/09/05 09:22:01 [error] 1234#1234: *5 open() \"/usr/share/nginx/html/favicon.ico\" failed (2: No such file or directory), client: 198.51.100.8, server: example.test, request: \"GET /favicon.ico HTTP/1.1\""
+  },
+  {
+   "line": "[Fri Sep 05 09:22:10.123456 2026] [core:error] [pid 2222] [client 198.51.100.9:50000] AH00126: Invalid URI in request GET /../../etc/passwd HTTP/1.1",
+   "program_name": null,
+   "msg": "[Fri Sep 05 09:22:10.123456 2026] [core:error] [pid 2222] [client 198.51.100.9:50000] AH00126: Invalid URI in request GET /../../etc/passwd HTTP/1.1"
+  },
+  {
+   "line": "Sep  5 09:23:00 ftp01 vsftpd[4000]: [bob] FAIL LOGIN: Client \"198.51.100.10\"",
+   "program_name": "vsftpd",
+   "msg": "[bob] FAIL LOGIN: Client \"198.51.100.10\""
+  },
+  {
+   "line": "Sep  5 09:23:05 mail01 dovecot: imap-login: Disconnected (auth failed, 3 attempts in 12 secs): user=<carol>, method=PLAIN, rip=198.51.100.11, lip=192.0.2.25, TLS, session=<abc>",
+   "program_name": "dovecot",
+   "msg": "imap-login: Disconnected (auth failed, 3 attempts in 12 secs): user=<carol>, method=PLAIN, rip=198.51.100.11, lip=192.0.2.25, TLS, session=<abc>"
+  },
+  {
+   "line": "Sep  5 09:21:02 mail01 postfix/smtpd[2841]: NOQUEUE: reject: RCPT from unknown[203.0.113.44]: 554 5.7.1 Relay access denied; from=<sender@example.test> to=<admin@example.test> proto=ESMTP helo=<badhost.example.test>",
+   "program_name": "postfix/smtpd",
+   "msg": "NOQUEUE: reject: RCPT from unknown[203.0.113.44]: 554 5.7.1 Relay access denied; from=<sender@example.test> to=<admin@example.test> proto=ESMTP helo=<badhost.example.test>"
+  },
+  {
+   "line": "Sep  5 09:23:30 mail01 postfix/smtp[2900]: 4F2A11234: to=<dave@example.test>, relay=mx.example.test[203.0.113.60]:25, delay=1.2, status=sent (250 2.0.0 OK)",
+   "program_name": "postfix/smtp",
+   "msg": "4F2A11234: to=<dave@example.test>, relay=mx.example.test[203.0.113.60]:25, delay=1.2, status=sent (250 2.0.0 OK)"
+  },
+  {
+   "line": "Sep  5 09:24:00 ns01 named[500]: client @0x7f 198.51.100.12#53000 (example.test): query (cache) 'example.test/A/IN' denied",
+   "program_name": "named",
+   "msg": "client @0x7f 198.51.100.12#53000 (example.test): query (cache) 'example.test/A/IN' denied"
+  },
+  {
+   "line": "Sep  5 09:24:10 dhcp01 dhcpd[600]: DHCPACK on 192.0.2.77 to 00:11:22:33:44:66 (laptop) via eth0",
+   "program_name": "dhcpd",
+   "msg": "DHCPACK on 192.0.2.77 to 00:11:22:33:44:66 (laptop) via eth0"
+  },
+  {
+   "line": "date=2026-09-05 time=09:18:44 devname=\"FGT-LAB\" devid=\"FGT000000000001\" type=\"traffic\" subtype=\"forward\" srcip=192.0.2.10 srcport=53144 dstip=198.51.100.30 dstport=443 action=\"accept\" service=\"HTTPS\" proto=6",
+   "program_name": null,
+   "msg": "date=2026-09-05 time=09:18:44 devname=\"FGT-LAB\" devid=\"FGT000000000001\" type=\"traffic\" subtype=\"forward\" srcip=192.0.2.10 srcport=53144 dstip=198.51.100.30 dstport=443 action=\"accept\" service=\"HTTPS\" proto=6"
+  },
+  {
+   "line": "date=2026-07-11 time=10:21:04 devname=\"FG100E\" logid=\"0000000013\" type=\"traffic\" subtype=\"forward\" level=\"notice\" srcip=10.1.10.21 srcport=51234 dstip=8.8.8.8 dstport=53 proto=17 action=\"accept\"",
+   "program_name": null,
+   "msg": "date=2026-07-11 time=10:21:04 devname=\"FG100E\" logid=\"0000000013\" type=\"traffic\" subtype=\"forward\" level=\"notice\" srcip=10.1.10.21 srcport=51234 dstip=8.8.8.8 dstport=53 proto=17 action=\"accept\""
+  },
+  {
+   "line": "Sep 05 09:19:10 asa01 %ASA-6-302013: Built outbound TCP connection 12345 for outside:198.51.100.20/443 (198.51.100.20/443) to inside:192.0.2.55/53144 (203.0.113.5/53144)",
+   "program_name": null,
+   "msg": "%ASA-6-302013: Built outbound TCP connection 12345 for outside:198.51.100.20/443 (198.51.100.20/443) to inside:192.0.2.55/53144 (203.0.113.5/53144)"
+  },
+  {
+   "line": "%ASA-4-106023: Deny tcp src outside:203.0.113.8/5555 dst inside:192.0.2.9/22 by access-group \"OUTSIDE_IN\" [0x0, 0x0]",
+   "program_name": null,
+   "msg": "%ASA-4-106023: Deny tcp src outside:203.0.113.8/5555 dst inside:192.0.2.9/22 by access-group \"OUTSIDE_IN\" [0x0, 0x0]"
+  },
+  {
+   "line": "%FTD-4-106103: access-list VPN-SSL-Users denied tcp for user 'i.ivanov' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670) hit-cnt 1 first hit [0xbb0817b6, 0x0]",
+   "program_name": null,
+   "msg": "%FTD-4-106103: access-list VPN-SSL-Users denied tcp for user 'i.ivanov' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670) hit-cnt 1 first hit [0xbb0817b6, 0x0]"
+  },
+  {
+   "line": "Sep  5 09:25:00 router01 1234: *Sep  5 09:25:00.123: %SEC-6-IPACCESSLOGP: list 101 denied tcp 203.0.113.9(1234) -> 192.0.2.1(23), 1 packet",
+   "program_name": "1234",
+   "msg": "*Sep  5 09:25:00.123: %SEC-6-IPACCESSLOGP: list 101 denied tcp 203.0.113.9(1234) -> 192.0.2.1(23), 1 packet"
+  },
+  {
+   "line": "Sep  5 09:15:22 router01 firewall,info forward: in:bridge-lan out:pppoe-wan, src-mac 02:00:5e:00:53:10, proto TCP (SYN), 192.0.2.25:51514->198.51.100.20:443, len 52",
+   "program_name": null,
+   "msg": "firewall,info forward: in:bridge-lan out:pppoe-wan, src-mac 02:00:5e:00:53:10, proto TCP (SYN), 192.0.2.25:51514->198.51.100.20:443, len 52"
+  },
+  {
+   "line": "1,2026/09/05 09:26:00,001801000000,TRAFFIC,end,2561,2026/09/05 09:26:00,192.0.2.30,198.51.100.40,0.0.0.0,0.0.0.0,allow-web,,,ssl,vsys1,trust,untrust,ethernet1/1,ethernet1/2,Log,2026/09/05 09:26:00,12345,1,50000,443,0,0,0x19,tcp,allow,5000,2000,3000,20,2026/09/05 09:25:50,10,any,0,1234,0x0,192.0.2.0-192.0.2.255,United States,0,10,10,tcp-fin",
+   "program_name": null,
+   "msg": "1,2026/09/05 09:26:00,001801000000,TRAFFIC,end,2561,2026/09/05 09:26:00,192.0.2.30,198.51.100.40,0.0.0.0,0.0.0.0,allow-web,,,ssl,vsys1,trust,untrust,ethernet1/1,ethernet1/2,Log,2026/09/05 09:26:00,12345,1,50000,443,0,0,0x19,tcp,allow,5000,2000,3000,20,2026/09/05 09:25:50,10,any,0,1234,0x0,192.0.2.0-192.0.2.255,United States,0,10,10,tcp-fin"
+  },
+  {
+   "line": "CEF:0|Trend Micro|Deep Security Manager|20.0|600|User Signed In|3|src=10.52.116.160 suser=admin msg=User signed in from 10.52.116.160",
+   "program_name": null,
+   "msg": "CEF:0|Trend Micro|Deep Security Manager|20.0|600|User Signed In|3|src=10.52.116.160 suser=admin msg=User signed in from 10.52.116.160"
+  },
+  {
+   "line": "CEF:0|Palo Alto Networks|PAN-OS|10.1|THREAT|virus|5|src=192.0.2.31 dst=198.51.100.41 act=reset-both",
+   "program_name": null,
+   "msg": "CEF:0|Palo Alto Networks|PAN-OS|10.1|THREAT|virus|5|src=192.0.2.31 dst=198.51.100.41 act=reset-both"
+  },
+  {
+   "line": "LEEF:1.0|IBM|QRadar|1.0|12345|src=192.0.2.32\tdst=198.51.100.42\tusrName=eve",
+   "program_name": null,
+   "msg": "LEEF:1.0|IBM|QRadar|1.0|12345|src=192.0.2.32\tdst=198.51.100.42\tusrName=eve"
+  },
+  {
+   "line": "{\"timestamp\":\"2026-07-11T10:21:04Z\",\"app\":\"payments-api\",\"event\":\"login_failed\",\"user\":\"a.ivanov\",\"src_ip\":\"10.20.30.7\",\"attempts\":4}",
+   "program_name": null,
+   "msg": "{\"timestamp\":\"2026-07-11T10:21:04Z\",\"app\":\"payments-api\",\"event\":\"login_failed\",\"user\":\"a.ivanov\",\"src_ip\":\"10.20.30.7\",\"attempts\":4}"
+  },
+  {
+   "line": "{\"timestamp\":\"2026-09-05T09:27:00.000+0000\",\"event_type\":\"alert\",\"src_ip\":\"203.0.113.10\",\"src_port\":4444,\"dest_ip\":\"192.0.2.11\",\"dest_port\":80,\"proto\":\"TCP\",\"alert\":{\"signature\":\"ET SCAN Nmap\",\"severity\":2}}",
+   "program_name": null,
+   "msg": "{\"timestamp\":\"2026-09-05T09:27:00.000+0000\",\"event_type\":\"alert\",\"src_ip\":\"203.0.113.10\",\"src_port\":4444,\"dest_ip\":\"192.0.2.11\",\"dest_port\":80,\"proto\":\"TCP\",\"alert\":{\"signature\":\"ET SCAN Nmap\",\"severity\":2}}"
+  },
+  {
+   "line": "{\"EventID\":3,\"Computer\":\"win-lab-01\",\"SourceIp\":\"192.0.2.88\",\"DestinationIp\":\"198.51.100.90\",\"DestinationPort\":443}",
+   "program_name": null,
+   "msg": "{\"EventID\":3,\"Computer\":\"win-lab-01\",\"SourceIp\":\"192.0.2.88\",\"DestinationIp\":\"198.51.100.90\",\"DestinationPort\":443}"
+  },
+  {
+   "line": "{\"win\":{\"system\":{\"eventID\":\"4625\",\"channel\":\"Security\",\"providerName\":\"Microsoft-Windows-Security-Auditing\"},\"eventdata\":{\"targetUserName\":\"bob\",\"ipAddress\":\"198.51.100.13\"}}}",
+   "program_name": null,
+   "msg": "{\"win\":{\"system\":{\"eventID\":\"4625\",\"channel\":\"Security\",\"providerName\":\"Microsoft-Windows-Security-Auditing\"},\"eventdata\":{\"targetUserName\":\"bob\",\"ipAddress\":\"198.51.100.13\"}}}"
+  },
+  {
+   "line": "2026-07-11 10:21:04 WARN payment-gw: transaction declined for user a.ivanov from 10.20.30.7 amount=1500.00",
+   "program_name": null,
+   "msg": "2026-07-11 10:21:04 WARN payment-gw: transaction declined for user a.ivanov from 10.20.30.7 amount=1500.00"
+  },
+  {
+   "line": "2026-09-05 09:28:00,123 ERROR [main] com.example.App - Login failed for user bob from 198.51.100.14",
+   "program_name": null,
+   "msg": "[main] com.example.App - Login failed for user bob from 198.51.100.14"
+  },
+  {
+   "line": "2026-09-05T09:28:10.123Z INFO  auth-service login ok user=carol ip=192.0.2.60",
+   "program_name": null,
+   "msg": "login ok user=carol ip=192.0.2.60"
+  },
+  {
+   "line": "[2026-09-05 09:28:20] production.ERROR: SQLSTATE[HY000] [2002] Connection refused",
+   "program_name": null,
+   "msg": "[2026-09-05 09:28:20] production.ERROR: SQLSTATE[HY000] [2002] Connection refused"
+  },
+  {
+   "line": "Sep  5 09:29:00 web01 myapp[7000]: user bob logged in from 198.51.100.15",
+   "program_name": "myapp",
+   "msg": "user bob logged in from 198.51.100.15"
+  },
+  {
+   "line": "Sep  5 09:29:05 web01 myapp: payment failed id=42 amount=10",
+   "program_name": "myapp",
+   "msg": "payment failed id=42 amount=10"
+  },
+  {
+   "line": "Sep  5 09:29:10 db01 postgres[800]: [3-1] FATAL:  password authentication failed for user \"app\"",
+   "program_name": "postgres",
+   "msg": "[3-1] FATAL:  password authentication failed for user \"app\""
+  },
+  {
+   "line": "Sep  5 09:29:20 db01 mysqld[900]: 2026-09-05T09:29:20.000000Z 12 [Note] Access denied for user 'root'@'198.51.100.16' (using password: YES)",
+   "program_name": "mysqld",
+   "msg": "2026-09-05T09:29:20.000000Z 12 [Note] Access denied for user 'root'@'198.51.100.16' (using password: YES)"
+  },
+  {
+   "line": "Sep  5 09:29:30 vpn01 openvpn[1000]: 198.51.100.17:1194 TLS Auth Error: Auth Username/Password verification failed for peer",
+   "program_name": "openvpn",
+   "msg": "198.51.100.17:1194 TLS Auth Error: Auth Username/Password verification failed for peer"
+  },
+  {
+   "line": "Sep  5 09:29:40 lb01 haproxy[1100]: 198.51.100.18:50000 [05/Sep/2026:09:29:40.000] fe_http be_app/app1 0/0/1/2/3 200 512 - - ---- 1/1/0/0/0 0/0 \"GET / HTTP/1.1\"",
+   "program_name": "haproxy",
+   "msg": "198.51.100.18:50000 [05/Sep/2026:09:29:40.000] fe_http be_app/app1 0/0/1/2/3 200 512 - - ---- 1/1/0/0/0 0/0 \"GET / HTTP/1.1\""
+  },
+  {
+   "line": "Sep  5 09:29:50 host01 dockerd[1200]: time=\"2026-09-05T09:29:50Z\" level=error msg=\"Handler for GET /containers/json returned error\"",
+   "program_name": "dockerd",
+   "msg": "time=\"2026-09-05T09:29:50Z\" level=error msg=\"Handler for GET /containers/json returned error\""
+  },
+  {
+   "line": "Sep  5 09:30:00 host01 ossec: Alert Level: 3; Rule: 5402 - Successful sudo to ROOT executed; Location: host01->/var/log/auth.log",
+   "program_name": "ossec",
+   "msg": "Alert Level: 3; Rule: 5402 - Successful sudo to ROOT executed; Location: host01->/var/log/auth.log"
+  },
+  {
+   "line": "2026 Sep 05 09:30:10 (agent01) 192.0.2.70->/var/log/syslog Test message",
+   "program_name": null,
+   "msg": "192.0.2.70->/var/log/syslog Test message"
+  },
+  {
+   "line": "Sep  5 09:30:20 host01 pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=198.51.100.19  user=root",
+   "program_name": "pam_unix(sshd",
+   "msg": "auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=198.51.100.19  user=root"
+  },
+  {
+   "line": "Sep  5 09:30:30 host01 useradd[1300]: new user: name=mallory, UID=1001, GID=1001, home=/home/mallory, shell=/bin/bash",
+   "program_name": "useradd",
+   "msg": "new user: name=mallory, UID=1001, GID=1001, home=/home/mallory, shell=/bin/bash"
+  },
+  {
+   "line": "Sep  5 09:30:40 host01 smbd[1400]: [2026/09/05 09:30:40.000000,  1] auth failure for user bob",
+   "program_name": "smbd",
+   "msg": "[2026/09/05 09:30:40.000000,  1] auth failure for user bob"
+  },
+  {
+   "line": "Sep  5 09:30:50 host01 xinetd[1500]: START: ftp pid=1501 from=198.51.100.20",
+   "program_name": "xinetd",
+   "msg": "START: ftp pid=1501 from=198.51.100.20"
+  },
+  {
+   "line": "Sep  5 09:31:00 host01 clamd[1600]: /tmp/eicar.com: Eicar-Signature FOUND",
+   "program_name": "clamd",
+   "msg": "/tmp/eicar.com: Eicar-Signature FOUND"
+  },
+  {
+   "line": "Sep  5 09:31:10 host01 snort[1700]: [1:1000001:1] Test alert [Classification: Misc] [Priority: 3] {TCP} 203.0.113.11:4444 -> 192.0.2.12:80",
+   "program_name": "snort",
+   "msg": "[1:1000001:1] Test alert [Classification: Misc] [Priority: 3] {TCP} 203.0.113.11:4444 -> 192.0.2.12:80"
+  },
+  {
+   "line": "Sep  5 09:31:20 host01 suricata[1800]: [1:2001219:20] ET SCAN Potential SSH Scan [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.12:5000 -> 192.0.2.13:22",
+   "program_name": "suricata",
+   "msg": "[1:2001219:20] ET SCAN Potential SSH Scan [Classification: Attempted Information Leak] [Priority: 2] {TCP} 203.0.113.12:5000 -> 192.0.2.13:22"
+  },
+  {
+   "line": "Sep  5 09:31:30 host01 kernel: audit: type=1400 audit(1725528690.123:100): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/sbin/cupsd\" name=\"/etc/shadow\" pid=1900 comm=\"cupsd\"",
+   "program_name": "kernel",
+   "msg": "audit: type=1400 audit(1725528690.123:100): apparmor=\"DENIED\" operation=\"open\" profile=\"/usr/sbin/cupsd\" name=\"/etc/shadow\" pid=1900 comm=\"cupsd\""
+  },
+  {
+   "line": "Sep  5 09:31:40 host01 rsyslogd: [origin software=\"rsyslogd\" swVersion=\"8.2102.0\"] rsyslogd was HUPed",
+   "program_name": "rsyslogd",
+   "msg": "[origin software=\"rsyslogd\" swVersion=\"8.2102.0\"] rsyslogd was HUPed"
+  },
+  {
+   "line": "Sep  5 09:31:50 host01 NetworkManager[2000]: <info>  [1725528710.1234] device (wlan0): state change: activated",
+   "program_name": "NetworkManager",
+   "msg": "<info>  [1725528710.1234] device (wlan0): state change: activated"
+  },
+  {
+   "line": "ERROR something bad happened at 12:00",
+   "program_name": null,
+   "msg": "ERROR something bad happened at 12:00"
+  },
+  {
+   "line": "user=frank action=login status=failed src=198.51.100.21",
+   "program_name": null,
+   "msg": "user=frank action=login status=failed src=198.51.100.21"
+  },
+  {
+   "line": "2026-09-05 09:32:00 INFO  [pool-1] Starting job 77",
+   "program_name": null,
+   "msg": "2026-09-05 09:32:00 INFO  [pool-1] Starting job 77"
+  }
+ ]
+}

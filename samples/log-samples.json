@@ -34,7 +34,7 @@
       }
     ],
     "stock_decoder": null,
-    "wazuh": "4.14.8: no stock decoder takes it. The predecoder strips 'Sep  5 09:15:22 router01' but sets no program_name ('firewall,info' is not a valid one); the generated prematch still expects the timestamp and host, so the generated decoder does not match either."
+    "wazuh": "4.14.8: no stock decoder takes it. The predecoder strips 'Sep  5 09:15:22 router01' and sets no program_name ('firewall,info' is not a valid one); the generated decoder matches and extracts its fields (the names are still wrong, see known_gaps)."
   },
   {
     "name": "FortiGate accepted HTTPS traffic",

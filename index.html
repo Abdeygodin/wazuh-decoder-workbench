@@ -556,15 +556,145 @@ function regexError(pattern, dialect){
 
 /* ---------- input parsing ---------- */
 
-const SYSLOG_RE = new RegExp("^(?:<\\d+>)?((?:"+TS_MONTHS+")\\s+\\d{1,2}\\s\\d{2}:\\d{2}:\\d{2})\\s+(\\S+)\\s+([\\w./-]+?)(?:\\[(\\d+)\\])?:\\s+(.*)$");
-const SYSLOG5424_RE = /^<\d+>1\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(?:-|\[.*?\])\s*(.*)$/;
+/* Wazuh pre-decoding: a port of OS_CleanMSG() (wazuh/src/analysisd/cleanevent.c, 4.14). A timestamp is
+   recognized only by characters at fixed positions; after a syslog-style one come a hostname and a
+   program name made of hostname_map characters. `msg` is what the decoders see. null: no timestamp
+   format matched, the decoders see the whole line. There is no RFC 5424 support in Wazuh. */
+const isHostChar = c => c !== undefined && /[()\-./0-9@A-Z_a-z]/.test(c);   /* hostname_map == 1 */
+const isDigit = c => c !== undefined && c >= "0" && c <= "9";
+const isAlnum = c => c !== undefined && /[0-9A-Za-z]/.test(c);
 
 function parseHeader(line){
-  let m = line.match(SYSLOG_RE);
-  if (m) return { kind:"rfc3164", timestamp:m[1], hostname:m[2], program:m[3], pid:m[4]||null, msg:m[5] };
-  m = line.match(SYSLOG5424_RE);
-  if (m) return { kind:"rfc5424", timestamp:m[1], hostname:m[2], program:m[3]==="-"?null:m[3], pid:m[4]==="-"?null:m[4], msg:m[7] };
-  return null;
+  /* remoted drops a leading <PRI> from the syslog it receives */
+  const priMatch = line.match(/^<[^>]*>/);
+  const s = priMatch ? line.slice(priMatch[0].length) : line;
+  const pri = priMatch ? priMatch[0] : null;
+  const L = s.length + 1;   /* loglen in the C code counts the terminating NUL */
+  const at = i => s[i];
+
+  let off = null, kind = null;
+  if (L > 17 && at(3) === " " && at(6) === " " && at(9) === ":" && at(12) === ":" && at(15) === " "){
+    off = 16; kind = "syslog";
+  } else if (L > 24 && at(4) === "-" && at(7) === "-" && at(10) === " " && at(13) === ":" && at(16) === ":" && at(19) === ","){
+    off = 24; kind = "proftpd";
+  } else if (L > 33 && at(4) === "-" && at(7) === "-" && at(10) === "T" && at(13) === ":" && at(16) === ":" &&
+             ((at(22) === ":" && at(25) === " ") || at(19) === ".")){
+    kind = "ISO 8601";
+    if (at(22) === ":" && at(25) === " ") off = 26;
+    else if (at(26) === ":") off = 30;
+    else if (at(29) === ":") off = 33;
+    else off = 32;
+  } else if (L > 21 && isDigit(at(0)) && at(4) === " " && at(8) === " " && at(11) === " " && at(14) === ":" && at(17) === ":" && at(20) === " "){
+    off = 21; kind = "syslog with year";
+  } else if (L > 33 && isDigit(at(0)) && at(4) === "-" && at(7) === "-" && at(10) === " " && at(13) === ":" && at(16) === ":" &&
+             at(19) === "." && (at(26) === "-" || at(26) === "+") && at(31) === " "){
+    off = 32; kind = "macOS unified log";
+  }
+
+  if (off !== null){
+    const timestamp = s.slice(0, off - 1);
+    let i = off;
+    if (at(i) === " ") i++;
+    let hostname = null, program = null, log = i, j = i;
+    while (isHostChar(at(j))) j++;
+    if (at(j) === ":" && at(j + 1) === " "){
+      /* no hostname (Solaris): the name before ": " is the program */
+      program = s.slice(i, j);
+      j += 2;
+    } else if (at(j) !== " "){
+      j = null;   /* invalid hostname: the decoders see everything after the timestamp */
+    } else {
+      hostname = s.slice(i, j);
+      j++;
+      log = j;
+      const ps = j;
+      while (isHostChar(at(j))) j++;
+      if (at(j) === ":"){                                   /* p_name: */
+        program = s.slice(ps, j);
+        j++;
+        if (at(j) === " ") j++;
+      } else if (at(j) === "[" && isDigit(at(j + 1))){        /* p_name[pid]: */
+        program = s.slice(ps, j);
+        j += 2;
+        while (isDigit(at(j))) j++;
+        if (at(j) === "]" && at(j + 1) === ":"){ j += 2; if (at(j) === " ") j++; }
+        else if (at(j) === "]" && at(j + 1) === " ") j += 2;
+        else { program = null; j = null; }
+      } else if (at(j) === "|" && /[a-z]/.test(at(j + 1) || "")){   /* AIX: auth|security:info p_name: */
+        j += 2;
+        while (isAlnum(at(j))) j++;
+        if (at(j) === ":"){
+          j++;
+          while (isAlnum(at(j))) j++;
+          if (at(j) === " "){
+            j++;
+            const ps2 = j;
+            while (isHostChar(at(j))) j++;
+            if (at(j) === ":" && at(j + 1) === " "){ program = s.slice(ps2, j); j += 2; }
+            else if (at(j) === "[" && isDigit(at(j + 1))){
+              program = s.slice(ps2, j);
+              j += 2;
+              while (isDigit(at(j))) j++;
+              if (at(j) === "]" && at(j + 1) === ":" && at(j + 2) === " ") j += 3;
+              else j = null;
+            } else program = s.slice(ps2);   /* C leaves program_name unterminated here */
+          } else { program = null; j = null; }
+        } else { program = null; j = null; }
+      } else { program = null; j = null; }
+    }
+    if (j !== null){
+      log = j;
+      /* drop "[ID xx facility.severity]" */
+      if (s.startsWith("[ID ", j)){
+        const close = s.indexOf("]", j + 4);
+        if (close >= 0) log = close + 2;
+      }
+    }
+    return { kind, pri, timestamp, hostname, program, msg: s.slice(log) };
+  }
+
+  /* timestamp-only formats: no hostname or program name */
+  const only = (kind, tsEnd, from) => ({ kind, pri, timestamp: s.slice(0, tsEnd), hostname: null, program: null, msg: s.slice(from) });
+  if (L > 28 && at(3) === " " && at(7) === " " && at(10) === " " && at(13) === ":" && at(16) === ":" && at(19) === " " && at(24) === " " && at(26) === " ")
+    return only("xferlog", 24, 25);
+  if (L > 24 && at(2) === "/" && at(5) === "-" && at(8) === ":" && at(11) === ":" && at(14) === "." && at(21) === " ")
+    return only("snort", 21, 23);
+  if (L > 28 && at(2) === "/" && at(5) === "/" && at(10) === "-" && at(13) === ":" && at(16) === ":" && at(19) === "." && at(26) === " ")
+    return only("suricata", 26, 28);
+  if (L > 27 && at(0) === "[" && at(4) === " " && at(8) === " " && at(11) === " " && at(14) === ":" && at(17) === ":" && at(20) === " " && at(25) === "]")
+    return only("apache", 26, 27);
+  if (L > 26 && at(0) === "[" && at(1) === "T" && at(5) === " " && at(10) === "." && at(13) === "." && at(16) === " " && at(19) === ":"){
+    /* macOS ASL: [Time …] [Sender p] [Message m] … [Host h] */
+    const r = only("macOS ASL", 24, 25);
+    let k = s.indexOf("[", 25), gotMessage = false;
+    while (k >= 0){
+      k++;
+      if (s.startsWith("Sender ", k) && r.program === null){
+        const e = s.indexOf("]", k + 7);
+        if (e < 0) break;
+        r.program = s.slice(k + 7, e); k = e + 1;
+      } else if (s.startsWith("Message ", k) && !gotMessage){
+        gotMessage = true;
+        const e = s.indexOf("]", k + 8);
+        r.msg = e < 0 ? s.slice(k + 8) : s.slice(k + 8, e);
+        if (e < 0) break;
+        k = e + 1;
+      } else if (s.startsWith("Host ", k)){
+        const e = s.indexOf("]", k + 5);
+        if (e >= 0) r.hostname = s.slice(k + 5, e);
+        break;
+      }
+      k = s.indexOf("[", k);
+    }
+    return r;
+  }
+  if (L > 32 && at(0) === "1" && isDigit(at(1)) && isDigit(at(2)) && isDigit(at(3)) && at(10) === "." && isDigit(at(13)) &&
+      at(14) === " " && (at(21) === " " || at(22) === " ")){
+    let k = 14;
+    while (at(k) === " ") k++;
+    return only("squid", 14, k);
+  }
+  return pri ? { kind: null, pri, timestamp: null, hostname: null, program: null, msg: s } : null;
 }
 
 function detectFormat(msg){
@@ -709,8 +839,8 @@ const state = {
 function dialect(){ return document.querySelector('input[name="dialect"]:checked').value; }
 function decoderName(){ return sanitizeName(document.getElementById("decName").value.trim() || "custom-app"); }
 
-/* <program_name> is OS_Match by default: no escapes at all (a backslash is a literal). Syslog program
-   names parsed by SYSLOG_RE contain only [\w./-], none of which is special there. */
+/* <program_name> is OS_Match by default: no escapes at all (a backslash is a literal). Program names
+   from the pre-decoder contain only hostname_map characters, none of which is special there. */
 function programParent(name, prog){
   return `<decoder name="${name}">\n  <program_name>^${prog}$</program_name>\n</decoder>`;
 }
@@ -1137,13 +1267,15 @@ function renderFormatInfo(){
   const el = document.getElementById("fmtInfo");
   const fmtNames = { plain:"plain text (positional)", keyvalue:"key=value", json:"JSON", cef:"CEF", leef:"LEEF" };
   let html = `<div><span class="k">format</span> <span class="badge">${fmtNames[state.format] || state.format}</span></div>`;
-  if (state.header){
-    html += `<div><span class="k">syslog</span> <span class="v">${state.header.kind === "rfc3164" ? "RFC 3164" : "RFC 5424"}</span></div>`;
-    if (state.header.program) html += `<div><span class="k">program_name</span> <span class="v">${htmlEscape(state.header.program)}</span></div>`;
-    html += `<div><span class="k">host</span> <span class="v">${htmlEscape(state.header.hostname)}</span></div>`;
+  const h = state.header;
+  if (h && h.kind){
+    html += `<div><span class="k">pre-decoding</span> <span class="v">${htmlEscape(h.kind)} timestamp removed</span></div>`;
+    if (h.hostname) html += `<div><span class="k">host</span> <span class="v">${htmlEscape(h.hostname)}</span></div>`;
+    html += `<div><span class="k">program_name</span> <span class="v">${h.program ? htmlEscape(h.program) : "none"}</span></div>`;
   } else {
-    html += `<div><span class="k">syslog header</span> <span class="v">not found</span></div>`;
+    html += `<div><span class="k">pre-decoding</span> <span class="v">no timestamp format — decoders see the whole line</span></div>`;
   }
+  if (h && h.pri) html += `<div><span class="k">priority</span> <span class="v">${htmlEscape(h.pri)} removed, as Wazuh's syslog listener does — paste the line without it into wazuh-logtest</span></div>`;
   if (state.variants && state.variants.length > 1){
     html += `<div><span class="k">message variants</span> <span class="badge">${state.variants.length}</span></div>`;
   }
@@ -1939,14 +2071,11 @@ function analyze(){
     /* plain: group ALL compatible lines into message variants by their literal+token skeleton */
     const groups = new Map();
     state.lines.forEach(line => {
-      let msg = null;
+      /* one parent decoder per run: group lines with the same program_name (or none) */
       const hdr = parseHeader(line);
-      if (state.header && state.header.program){
-        if (hdr && hdr.program === state.header.program) msg = hdr.msg;
-      } else if (!state.header && !hdr){
-        msg = line;
-      }
-      if (msg === null || detectFormat(msg) !== "plain") return;
+      if (((hdr && hdr.program) || null) !== ((state.header && state.header.program) || null)) return;
+      const msg = hdr ? hdr.msg : line;
+      if (detectFormat(msg) !== "plain") return;
       const toks = tokenizePlain(msg);
       let sig = "", pos = 0;
       toks.forEach(t => { sig += msg.slice(pos, t.start) + " " + t.type + " "; pos = t.end; });
@@ -2147,6 +2276,11 @@ init();
 /* hook for test.html: the same pipeline as the Analyze button — generate decoders, then run every line
    through the simulator */
 window.WDW = {
+  /* what Wazuh's pre-decoding leaves for the decoders */
+  preDecode(line){
+    const h = parseHeader(line);
+    return { programName: (h && h.program) || null, msg: h ? h.msg : line };
+  },
   run(text, dialectName){
     document.querySelector(`input[name="dialect"][value="${dialectName}"]`).checked = true;
     document.getElementById("logInput").value = text;

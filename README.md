@@ -11,7 +11,7 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
 
 ## Features
 
-- **Automatic format detection** — syslog RFC 3164 / RFC 5424 headers, JSON, key=value (FortiGate-style), CEF, and plain positional text.
+- **Automatic format detection** — JSON, key=value (FortiGate-style), CEF, and plain positional text, after the same pre-decoding Wazuh does: a port of its pre-decoder (`OS_CleanMSG`) strips the timestamp formats Wazuh knows (syslog, ISO 8601, proftpd, xferlog, snort, suricata, apache, squid, macOS) and takes the hostname and `program_name` the way Wazuh does — so `%ASA-…` or `firewall,info` are not program names, and RFC 5424 is not parsed (Wazuh does not parse it either). A leading `<PRI>` is removed, as Wazuh's syslog listener does.
 - **Token recognition** — IPs, ports, users (by context: `user`, `from`, `port`…), emails, URLs, MD5/SHA1/SHA256 hashes, UUIDs, MAC addresses, timestamps. Each token gets a suggested standard Wazuh field name (`srcip`, `dstuser`, `srcport`, …).
 - **Fully editable mapping** — toggle fields on/off and rename them; the XML regenerates live.
 - **Two regex dialects**:
@@ -23,7 +23,7 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
   - several message variants get one child decoder each, told apart by its own `<prematch>` (Wazuh runs only the first matching child);
   - JSON logs use the built-in `JSON_Decoder` plugin instead of regex.
 - **rules.xml scaffold** — a base `decoded_as` rule plus an example refined rule with a condition on a field value taken from your actual log (static fields such as `action` or `srcip` get their own tag — Wazuh refuses `<field name="action">`).
-- **Stock decoder check** — every line is also matched against the parent decoders of the stock Wazuh ruleset (embedded in `index.html`, currently 4.14.8). Stock decoders load before `etc/decoders` and Wazuh uses the first parent decoder that matches, so if one takes the line, the generated decoder would never run. The page says which one, links to its file and lists the options: rules on the stock decoder, a child decoder under it, or replacing its file. Checked against a real `wazuh-logtest` 4.14.8 on 63 lines: 62 agree; the other one is a squid timestamp the Wazuh predecoder strips and the workbench does not. To embed another ruleset version: `python3 tools/build-stock-decoders.py --tag v4.x.y`.
+- **Stock decoder check** — every line is also matched against the parent decoders of the stock Wazuh ruleset (embedded in `index.html`, currently 4.14.8). Stock decoders load before `etc/decoders` and Wazuh uses the first parent decoder that matches, so if one takes the line, the generated decoder would never run. The page says which one, links to its file and lists the options: rules on the stock decoder, a child decoder under it, or replacing its file. Checked against a real `wazuh-logtest` 4.14.8 on 63 lines: all agree. To embed another ruleset version: `python3 tools/build-stock-decoders.py --tag v4.x.y`.
 - **Built-in logtest simulator** — every pasted line is run through the generated decoders: extracted fields, matched rule ID and level, alert verdict.
 - **AI assistant (optional)** — describe what you want in plain language (“rename field3 to hit_count, extract the interface names too”) and let an LLM rewrite the decoder/rules. Works with **local models** (Ollama, LM Studio — nothing leaves your machine) and OpenAI-compatible / Anthropic cloud APIs (bring your own key, stored only in your browser). Every AI reply is checked before it is shown: the decoders are **run through the built-in simulator** against your sample lines, and the rules are **limited to your decoders** — IDs must come from your block (first rule ID + 99), every rule must hang off your own decoders or rules, and anything that could change or silence stock rules (`overwrite`, `if_group`, `if_level`, references to stock rule IDs) is rejected. Log lines are passed to the model as untrusted data. Failed attempts are sent back to the model with the exact errors (up to 3 tries). Rule conditions themselves are not simulated — confirm them with `wazuh-logtest`.
 - **Deployment cheat-sheet** — file paths, custom rule ID range (100000–120000), `wazuh-logtest`, restart command.
@@ -84,6 +84,8 @@ python -m http.server 8000
 
 Then visit <http://localhost:8000/test.html>. The page title starts with `PASS` or `FAIL`, and `window.regressionResult`
 holds the counts for headless runs.
+
+`samples/predecoder-cases.json` holds 102 lines with the `program_name` and message a real `wazuh-logtest` 4.14.8 reported for them; the page checks the workbench's pre-decoder gives the same.
 
 Adding a sample: paste an anonymized line (RFC 5737 IPs, `example.test` domains, fictional users), put the fields the
 workbench gets right into `expected_fields` and the rest into `known_gaps`.
