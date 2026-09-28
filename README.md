@@ -15,7 +15,7 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
 - **Token recognition** — IPv4/IPv6 addresses and ports (`ip:port`, `ip(port)`, Cisco `iface:ip/port`), direction from context (`from`/`to`, `src`/`dst`, `a -> b`), NAT addresses in parentheses (`mapped_srcip`), users (`user x`, `failed for x`, `from=<…>`/`to=<…>`), web request lines (`method`, `url`, `status`), SMTP status codes, actions (`Deny`, `Built`, `reject`, `failed`…), emails, URLs, MD5/SHA1/SHA256 hashes, UUIDs, MAC addresses, timestamps (syslog, ISO 8601, web access logs). Each token gets a suggested standard Wazuh field name (`srcip`, `dstuser`, `srcport`, …).
 - **Fully editable mapping** — toggle fields on/off and rename them; the XML regenerates live.
 - **Two regex dialects**:
-  - classic **OS_Regex** (works on every Wazuh version, with its quirks accounted for — e.g. a narrow `\w+` instead of the greedy `\.+` for quoted values);
+  - classic **OS_Regex** (works on every Wazuh version). The built-in test runs a port of Wazuh's own OS_Regex engine, not a translation to JavaScript regexes, so its quirks come out as in Wazuh: `\.+` is lazy, at most four backtrack points, case-insensitive matching, `\w` includes `-` and `@`;
   - **PCRE2** (`type="pcre2"`, Wazuh 4.2+) for more precise patterns.
 - **Sensible decoder structure**:
   - syslog logs get a `program_name` parent decoder + a fields child decoder;
@@ -84,6 +84,8 @@ python -m http.server 8000
 
 Then visit <http://localhost:8000/test.html>. The page title starts with `PASS` or `FAIL`, and `window.regressionResult`
 holds the counts for headless runs.
+
+`samples/os-regex-cases.json` holds random OS_Regex patterns and lines with what a real Wazuh 4.14.8 did with them (match, what was left after it, group captures); the page checks the workbench's OS_Regex engine does the same.
 
 `samples/predecoder-cases.json` holds 102 lines with the `program_name` and message a real `wazuh-logtest` 4.14.8 reported for them; the page checks the workbench's pre-decoder gives the same.
 

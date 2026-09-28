@@ -32,16 +32,10 @@
       "dstip": "198.51.100.30",
       "dstport": "443",
       "action": "accept",
-      "protocol": "6"
+      "protocol": "6",
+      "devname": "FGT-LAB"
     },
-    "known_gaps": [
-      {
-        "field": "devname",
-        "expected": "FGT-LAB",
-        "dialect": "os",
-        "note": "simulator bug: it treats OS_Regex \\.+ as greedy and captures up to the last quote; real Wazuh stops at the first one and extracts FGT-LAB"
-      }
-    ],
+    "known_gaps": [],
     "stock_decoder": "fortigate-firewall-v5",
     "wazuh": "4.14.8: the stock fortigate-firewall-v5 decoder takes it (4.9.2 had no stock match, and the generated decoder extracted every field, devname=FGT-LAB included)."
   },

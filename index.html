@@ -406,7 +406,7 @@
             <li>Verify before restarting: <code>/var/ossec/bin/wazuh-logtest</code> — paste the same log line there.</li>
             <li>Apply: <code>systemctl restart wazuh-manager</code>.</li>
             <li>Level ≥ 3 creates an alert (by default); level ≥ 12 — critical events.</li>
-            <li>OS_Regex: <code>\.+</code> means “any characters” and it is <b>greedy</b>: for quoted values the PCRE2 dialect (<code>[^"]*</code>) is more reliable.</li>
+            <li>OS_Regex: <code>\.+</code> means “any characters” and stops as soon as the rest of the pattern fits (it is <b>lazy</b>): <code>devname="(\.+)"</code> ends at the first quote. At the end of a pattern it takes the rest of the line. Matching ignores case.</li>
             <li>The test here approximates the Wazuh engine. Always do the final check in <code>wazuh-logtest</code>.</li>
           </ul>
         </details>
@@ -510,38 +510,193 @@ function patternXml(s){ return s.replace(/</g, "\\<"); }
 function htmlEscape(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function jsEscapeChar(c){ return /[.*+?^${}()|[\]\\\/]/.test(c) ? "\\"+c : c; }
 
-/* OS_Regex → JS RegExp (approximation of the os_regex engine) */
-const OS_ESCAPES = {
-  w:"[A-Za-z0-9_]", d:"[0-9]", s:" ", S:"\\S", W:"[^A-Za-z0-9_]", D:"[^0-9]", t:"\\t",
-  p:"[()*+,\\-.:;<=>?\\[\\]!\"'#$%&|{}]", ".":"[\\s\\S]",
-  "(":"\\(", ")":"\\)", "\\":"\\\\", "$":"\\$", "|":"\\|", "<":"<"
-};
-function osToJs(p){
-  let out = "", i = 0;
-  while (i < p.length){
-    const c = p[i];
-    if (c === "\\"){
-      const n = p[i+1];
-      if (n === undefined || !Object.hasOwn(OS_ESCAPES, n))
-        throw new Error(`"\\${n || ""}" is not a valid OS_Regex escape — only \\d \\w \\s \\p \\D \\W \\S \\. \\t \\( \\) \\\\ \\$ \\| exist; [ ] + * ? ^ are literals and must not be escaped`);
-      out += OS_ESCAPES[n];
-      i += 2;
-      /* + and * are modifiers only right after an escape; everywhere else they are literals */
-      if (p[i] === "+" || p[i] === "*"){ out += p[i]; i++; }
-    } else if (c === "|"){
-      out += "|"; i++;
-    } else if (c === "^"){
-      out += (i === 0 || p[i-1] === "|" ? "^" : "\\^"); i++;
-    } else if (c === "$"){
-      out += (i === p.length-1 || p[i+1] === "|" ? "$" : "\\$"); i++;
-    } else if (c === "(" || c === ")"){
-      out += c; i++;
-    } else {
-      out += jsEscapeChar(c); i++;
+/* ---------- OS_Regex engine ----------
+   A port of Wazuh's own matcher (src/os_regex/os_regex_compile.c, os_regex_execute.c, 4.14), not a
+   translation to JS RegExp: \x+ stops as soon as the rest of the pattern can go on (lazy), at most four
+   backtrack points are kept, the match ignores case, and the classes are Wazuh's (\w includes - and @,
+   \s is only a space, \S includes a tab). It runs on UTF-8 bytes, as the C code does. */
+const OSR_ESCAPE_CODE = { d:1, w:2, s:3, p:4, "(":5, ")":6, "\\":7, D:8, W:9, S:10, ".":11, t:12, $:13, "|":14, "<":15 };
+/* regexmap[code] from os_regex_maps.c, as byte ranges */
+const OSR_CLASS = [
+  [[48,57]], [[48,57]], [[45,45],[48,57],[64,90],[95,95],[97,122]], [[32,32]],
+  [[33,46],[58,63],[91,91],[93,93],[123,125]], [[40,40]], [[41,41]], [[92,92]], [[0,47],[58,255]],
+  [[0,44],[46,47],[58,63],[91,94],[96,96],[123,255]], [[0,31],[33,255]], [[0,255]], [[9,9]], [[36,36]],
+  [[124,124]], [[60,60]]
+].map(ranges => { const t = new Uint8Array(256); ranges.forEach(([a, b]) => t.fill(1, a, b + 1)); return t; });
+const OSR_BEGIN = 1, OSR_END = 2;
+const osLower = c => (c >= 65 && c <= 90 ? c + 32 : c);   /* charmap */
+const utf8 = new TextEncoder(), utf8Decode = new TextDecoder();
+
+/* OSRegex_Compile() — throws on the errors Wazuh rejects. captures: OS_RETURN_SUBSTRING, which Wazuh
+   sets for <regex> only (not <prematch>/<program_name>); it also changes how a match may end */
+function compileOsRegex(pattern, captures){
+  const src = utf8.encode(pattern), out = [];
+  let parens = 0;
+  for (let i = 0; i < src.length; i++){
+    let c = src[i];
+    if (c === 92){
+      const n = String.fromCharCode(src[i + 1] || 0);
+      if (i + 1 >= src.length || !Object.hasOwn(OSR_ESCAPE_CODE, n))
+        throw new Error(`"\\${i + 1 < src.length ? n : ""}" is not a valid OS_Regex escape — only \\d \\w \\s \\p \\D \\W \\S \\. \\t \\( \\) \\\\ \\$ \\| \\< exist; [ ] + * ? ^ are literals and must not be escaped`);
+      out.push(92, OSR_ESCAPE_CODE[n]);
+      i++;
+      continue;
+    }
+    if (c === 40) parens++;
+    else if (c === 41){ c = 40; parens--; }                       /* internally ( and ) are the same */
+    if (parens !== 0 && parens !== 1) throw new Error("OS_Regex allows only one level of parentheses, each one closed");
+    c = osLower(c);
+    if (c === 124 && parens !== 0) throw new Error("every | alternative must close its parentheses");
+    out.push(c);
+  }
+  if (parens !== 0) throw new Error("unbalanced parentheses");
+  /* split on | into sub-patterns; a leading ^ and a trailing $ become flags */
+  const subs = [];
+  let from = 0;
+  for (let i = 0; i <= out.length; i++){
+    if (i < out.length && out[i] !== 124) continue;
+    let a = from, b = i, flags = 0;
+    if (out[a] === 94){ a++; flags |= OSR_BEGIN; }
+    if (b > a && out[b - 1] === 36){ b--; flags |= OSR_END; }
+    const pat = out.slice(a, b);
+    const closures = [];
+    pat.forEach((c, k) => { if (c === 40) closures.push(k); });
+    subs.push({ pat, flags, closures });
+    from = i + 1;
+  }
+  /* prts_closure exists only with OS_RETURN_SUBSTRING and at least one group in the whole pattern */
+  const withClosures = !!captures && subs.some(sub => sub.closures.length);
+  return { os: true, subs, exec: str => osRegexExec(subs, str, withClosures) };
+}
+
+/* _OS_Regex(): the index of the last matched byte, or null; fills caps with byte offsets */
+function osRegexRun(pat, s, flags, closures, caps, withClosures){
+  const P = i => (i < pat.length ? pat[i] : 0);
+  const S = i => (i >= 0 && i < s.length ? s[i] : 0);
+  const cls = (code, c) => OSR_CLASS[code] !== undefined && OSR_CLASS[code][c] === 1;
+  const isPlus = c => c === 43 || c === 42;
+  const mark = (p, v) => { const k = closures.indexOf(p); if (k >= 0) caps[k] = v; };
+  const errPt = [null, null, null, null], errSt = [null, null, null, null];
+  let rCode = 0, matched = 0, st, stError = null, pt = 0, next, okHere;
+
+  for (st = 0; S(st) !== 0; ++st){
+    if (P(pt) === 0){
+      if (!(flags & OSR_END) || S(st) === 0) return rCode;
+    } else if (P(pt) === 40){
+      mark(pt, st);
+      pt++;
+      if (P(pt) === 0 && (!(flags & OSR_END) || S(st) === 0)) return rCode;
+    }
+
+    if (P(pt) === 92){
+      if (cls(P(pt + 1), S(st))){
+        next = pt + 2;
+        if (!isPlus(P(next))){
+          pt = next;
+          if (stError === null) stError = st;
+          rCode = st;
+          continue;
+        }
+        if (P(next) === 42) matched = 1;
+        if (matched){
+          next++;
+          okHere = -1;
+          if (P(next) === 40) next++;
+          if (P(next) === 0) okHere = 1;
+          else if (P(next) === 92){
+            if (cls(P(next + 1), S(st))) okHere = isPlus(P(next + 2)) ? 0 : 2;
+          } else if (P(next) === osLower(S(st))){
+            matched = 0;
+            okHere = 1;
+          }
+          if (okHere >= 0){
+            if (P(next - 1) === 40) mark(next - 1, matched && okHere === 1 ? st + 1 : st);
+            if (P(next) === 0) continue;
+            if (okHere) next += okHere;
+            for (let k = 0; k < 4; k++) if (errPt[k] === null){ errPt[k] = pt; errSt[k] = st; break; }
+            pt = next;
+          }
+        } else {
+          next++;
+          if (P(next) === 40){
+            mark(next, S(st + 1) === 0 ? st + 1 : st);
+            next++;
+          }
+          matched = 1;
+        }
+        rCode = st;
+        continue;
+      } else if ((P(pt + 2) === 0 || P(pt + 3) === 0) && matched === 1 && rCode !== null){
+        rCode = st;
+        if (!(flags & OSR_END) || S(st) === 0) return rCode;
+      } else if (P(pt + 2) === 43 && matched === 1){
+        pt += 3; st--; matched = 0;
+        continue;
+      } else if (P(pt + 2) === 42){
+        pt += 3; st--; rCode = st; matched = 0;
+        continue;
+      }
+      matched = 0;
+    } else if (P(pt) === osLower(S(st))){
+      pt++;
+      if (stError === null) stError = st;
+      rCode = st;
+      continue;
+    }
+
+    /* error handling: back to the latest saved point, then restart one byte later */
+    let restored = false;
+    for (let k = 3; k >= 0; k--) if (errPt[k] !== null){ pt = errPt[k]; st = errSt[k]; errPt[k] = null; restored = true; break; }
+    if (restored) continue;
+    if (flags & OSR_BEGIN) return null;
+    if (stError !== null){ st = stError; stError = null; }
+    pt = 0;
+    rCode = null;
+  }
+
+  /* a closing parenthesis at the very end */
+  if (withClosures){
+    while (P(pt) !== 40 && P(pt) !== 0){
+      if (P(pt) === 92 && P(pt + 2) === 42) pt += 3; else break;
+    }
+    if (P(pt) === 40) mark(pt, st);
+  }
+
+  /* the rest of the pattern must be empty or optional; the C expression advances pt as it goes */
+  const endOfPattern = () => { if (P(pt) === 40) pt++; return P(pt) === 0; };
+  if (endOfPattern()) return rCode;
+  if (P(pt) === 92 && matched){
+    pt += 2;
+    if (isPlus(P(pt))){
+      pt++;
+      if (endOfPattern()) return rCode;
+      if (P(pt) === 92){ pt += 2; if (P(pt) === 42){ pt++; if (endOfPattern()) return rCode; } }
     }
   }
-  return out;
+  if (P(pt) === 92){ pt += 2; if (P(pt) === 42){ pt++; if (endOfPattern()) return rCode; } }
+  return null;
 }
+
+/* OSRegex_Execute(): the first sub-pattern that matches wins. Returns { end, caps } in characters —
+   end is just after the last matched byte, as decoder.c moves past it — or null */
+function osRegexExec(subs, str, withClosures){
+  const s = utf8.encode(str);
+  for (const sub of subs){
+    const caps = new Array(sub.closures.length).fill(null);
+    const r = osRegexRun(sub.pat, s, sub.flags, sub.closures, caps, withClosures);
+    if (r === null) continue;
+    /* an empty match at the start returns the byte before the string, which in Wazuh's buffer is the
+       NUL ending the copy before it: decoder.c does not move past it, so nothing is left after the match */
+    if (r === -1) return { end: str.length, caps: [] };
+    const groups = [];
+    for (let j = 0; j + 1 < caps.length && caps[j] !== null && caps[j + 1] !== null; j += 2)
+      groups.push(utf8Decode.decode(s.subarray(caps[j], caps[j + 1])));
+    const endByte = r < s.length ? r + 1 : r;
+    return { end: utf8Decode.decode(s.subarray(0, endByte)).length, caps: groups };
+  }
+  return null;
+}
+
 /* OS_Match (default type of <program_name>): literals only, plus ^ $ and | between alternatives */
 function osMatchToJs(p){
   return p.split("|").map(a => {
@@ -551,19 +706,26 @@ function osMatchToJs(p){
     return (start ? "^" : "") + [...body].map(jsEscapeChar).join("") + (end ? "$" : "");
   }).join("|");
 }
-function toJsSource(pattern, dialect){
-  if (dialect === "os") return osToJs(pattern);
-  if (dialect === "osmatch") return osMatchToJs(pattern);
-  return pattern;
+/* os → the OS_Regex engine above; osmatch (OS_Match, case-insensitive too) and pcre2 → JS RegExp */
+function compileRegexOrThrow(pattern, dialect, captures){
+  if (dialect === "os") return compileOsRegex(pattern, captures);
+  return new RegExp(dialect === "osmatch" ? osMatchToJs(pattern) : pattern, dialect === "osmatch" ? "i" : "");
 }
-function compileRegex(pattern, dialect){
-  try { return new RegExp(toJsSource(pattern, dialect)); }
+/* captures: true for <regex>, false for <prematch>/<program_name> */
+function compileRegex(pattern, dialect, captures){
+  try { return compileRegexOrThrow(pattern, dialect, captures); }
   catch(e){ return null; }
 }
 /* null if the pattern compiles, otherwise the reason */
 function regexError(pattern, dialect){
-  try { new RegExp(toJsSource(pattern, dialect)); return null; }
+  try { compileRegexOrThrow(pattern, dialect); return null; }
   catch(e){ return e.message; }
+}
+/* { end, caps } — end is the offset just after the match — or null */
+function execPattern(re, str){
+  if (re.os) return re.exec(str);
+  const m = str.match(re);
+  return m ? { end: m.index + m[0].length, caps: m.slice(1) } : null;
 }
 
 /* ---------- input parsing ---------- */
@@ -995,7 +1157,7 @@ function buildKV(d){
       if (d === "pcre2"){
         rxPat = esc(t.key) + '="([^"]*)"';
       } else {
-        /* \.+ is greedy in OS_Regex — use a narrower class for simple values */
+        /* \w+ where the value allows it; otherwise \.+, which OS_Regex stops at the first closing quote */
         const osInner = /^\w+$/.test(t.value) ? "\\w+" : "\\.+";
         rxPat = esc(t.key) + '="(' + osInner + ')"';
       }
@@ -1019,8 +1181,8 @@ function buildKV(d){
     ].join("\n"));
     simChildren.push({ regex: rxPat, field: t.outName });
   }
-  if (d === "os" && inc.some(t => t.quoted || t.value.includes(" "))){
-    notes.push('The OS_Regex pattern "(\\.+)" is greedy: quoted values and values with spaces may capture too much. For such logs the PCRE2 dialect is more reliable.');
+  if (d === "os" && inc.some(t => !t.quoted && t.value.includes(" "))){
+    notes.push('An unquoted value with spaces (msg=User signed in …) can only be taken to the end of the line in OS_Regex: "(\\.+)" has nothing after it to stop at, so it swallows the following keys too. The PCRE2 dialect stops at the next key=.');
   }
   notes.push("For key=value logs every field gets its own child decoder, all with the same name (Wazuh “sibling decoders”) — each one is run, so the decoder does not break when the vendor reorders or omits fields.");
   return { xml: lines.join("\n"), notes, sim:{ kind:"kv", parent:parentMatchInfo, children:simChildren, dialect:d } };
@@ -1215,84 +1377,6 @@ function buildRules(){
   out.push("");
   out.push(`</group>`);
   return { xml: out.join("\n"), base:{ id, level }, child: childInfo };
-}
-
-/* ---------- wazuh-logtest simulator ---------- */
-
-function simulateLine(line, sim, rules){
-  const res = { raw: line, phases: [] };
-  const hdr = parseHeader(line);
-  const msg = hdr ? hdr.msg : line;
-
-  /* phase 1 */
-  const pre = [];
-  if (hdr){
-    pre.push(["timestamp", hdr.timestamp]);
-    pre.push(["hostname", hdr.hostname]);
-    if (hdr.program) pre.push(["program_name", hdr.program]);
-  }
-  res.pre = pre;
-
-  /* phase 2 */
-  const fields = [];
-  let matched = false;
-
-  if (sim.kind === "json"){
-    try {
-      const j = JSON.parse(msg.trim());
-      flattenJson(j, "", []).forEach(f => fields.push([f.key, f.value]));
-      matched = true;
-    } catch(e){ matched = false; }
-  } else {
-    /* parent */
-    let parentOk = false, searchFrom = 0;
-    if (sim.parent.mode === "program"){
-      parentOk = !!(hdr && hdr.program && hdr.program.replace(/\[\d+\]$/,"") === sim.parent.program);
-    } else {
-      const re = compileRegex(sim.parent.prematch, sim.dialect);
-      if (re){
-        const m = msg.match(re);
-        if (m){ parentOk = true; searchFrom = m.index + m[0].length; }
-      }
-    }
-    if (parentOk){
-      if (sim.kind === "kv"){
-        matched = true;
-        for (const ch of sim.children){
-          const re = compileRegex(ch.regex, sim.dialect);
-          if (!re) continue;
-          const m = msg.match(re);
-          if (m && m[1] !== undefined) fields.push([ch.field, m[1]]);
-        }
-      } else {
-        /* regex without offset — applied to the whole message */
-        if (sim.regex){
-          const re = compileRegex(sim.regex, sim.dialect);
-          if (re){
-            const m = msg.match(re);
-            if (m){
-              matched = true;
-              sim.order.forEach((name, i) => { if (m[i+1] !== undefined) fields.push([name, m[i+1]]); });
-            }
-          }
-        } else {
-          matched = true;
-        }
-      }
-    }
-  }
-  res.decoderMatched = matched;
-  res.fields = fields;
-
-  /* phase 3 */
-  if (matched){
-    res.rule = { id: rules.base.id, level: rules.base.level };
-    if (rules.child.fired){
-      const hit = fields.find(f => f[0] === rules.child.field && f[1] === rules.child.value);
-      if (hit) res.rule = { id: rules.child.id, level: rules.child.level, refined:true };
-    }
-  }
-  return res;
 }
 
 /* ---------- rendering ---------- */
@@ -1702,13 +1786,13 @@ function simulateGeneric(line, decoders){
     let pmEnd = 0;
     if (p.program){
       const re = compileRegex(p.program, p.programType);
-      if (!re || !re.test(hdr.program)) continue;
+      if (!re || !execPattern(re, hdr.program)) continue;
     }
     if (p.prematch){
       const re = compileRegex(p.prematch, p.prematchType);
-      const m = re ? msg.match(re) : null;
+      const m = re && execPattern(re, msg);
       if (!m) continue;
-      pmEnd = m.index + m[0].length;
+      pmEnd = m.end;
     }
     const { fields, via } = runChildDecoders(p, decoders, msg, pmEnd);
     return { matched:true, parent:p.name, via, fields, hdr };
@@ -1733,8 +1817,8 @@ function runChildDecoders(p, decoders, msg, pmEnd){
     if (!k.prematch){ sel = i; break; }
     const from = k.prematchOffset === "after_parent" ? pmEnd : 0;
     const re = compileRegex(k.prematch, k.prematchType);
-    const m = re ? msg.slice(from).match(re) : null;
-    if (m){ sel = i; cmatch = from + m.index + m[0].length; break; }
+    const m = re && execPattern(re, msg.slice(from));
+    if (m){ sel = i; cmatch = from + m.end; break; }
     if (getNext[i]){
       do { i++; } while (i < kids.length && getNext[i]);
       if (i >= kids.length) break;
@@ -1753,14 +1837,14 @@ function runChildDecoders(p, decoders, msg, pmEnd){
       if (k.offset === "after_parent" || (k === p && k.offset === "after_prematch")) from = pmEnd;
       else if (k.offset === "after_prematch") from = cmatch;
       else if (k.offset === "after_regex") from = regexPrev !== null ? regexPrev : cmatch;
-      const re = compileRegex(k.regex, k.regexType);
-      const m = re ? msg.slice(from).match(re) : null;
+      const re = compileRegex(k.regex, k.regexType, true);
+      const m = re && execPattern(re, msg.slice(from));
       if (!m){
         if (getNext[i]){ i++; continue; }
         break;
       }
-      regexPrev = from + m.index + m[0].length;
-      k.order.forEach((n,j) => { if (m[j+1] !== undefined) fields.push([n, m[j+1]]); });
+      regexPrev = from + m.end;
+      k.order.forEach((n,j) => { if (m.caps[j] !== undefined) fields.push([n, m.caps[j]]); });
       if (!via && k !== p) via = k.name;
     } else break;
     if (!getNext[i]) break;
@@ -2021,19 +2105,16 @@ function initLLM(){
    when a stock parent takes the line, the generated decoder never runs. OS_Regex and OS_Match are
    compiled without OS_CASE_SENSITIVE in decoders, so they ignore case. */
 let stockParents = null;
-function compileStock(pattern, dialect){
-  try { return new RegExp(toJsSource(pattern, dialect), dialect === "pcre2" ? "" : "i"); }
-  catch(e){ return null; }
-}
+
 function stockParentList(){
   if (stockParents || typeof STOCK_DECODERS === "undefined") return stockParents;
   stockParents = STOCK_DECODERS.parents.map(([file, name, program, programType, prematch, prematchType]) => ({
     name, file: STOCK_DECODERS.files[file],
     hasProgram: program !== null,
     program: program === null ? null
-      : compileStock(program, programType === "pcre2" ? "pcre2" : programType === "osregex" ? "os" : "osmatch"),
+      : compileRegex(program, programType === "pcre2" ? "pcre2" : programType === "osregex" ? "os" : "osmatch"),
     hasPrematch: prematch !== null,
-    prematch: prematch === null ? null : compileStock(prematch, prematchType === "pcre2" ? "pcre2" : "os")
+    prematch: prematch === null ? null : compileRegex(prematch, prematchType === "pcre2" ? "pcre2" : "os")
   }));
   return stockParents;
 }
@@ -2048,8 +2129,8 @@ function stockDecoderFor(line){
   const hasProgram = !!(hdr && hdr.program);
   for (const p of list){
     if (p.hasProgram !== hasProgram) continue;
-    if (p.hasProgram && !(p.program && p.program.test(hdr.program))) continue;
-    if (p.hasPrematch && !(p.prematch && p.prematch.test(msg))) continue;
+    if (p.hasProgram && !(p.program && execPattern(p.program, hdr.program))) continue;
+    if (p.hasPrematch && !(p.prematch && execPattern(p.prematch, msg))) continue;
     return p;
   }
   return null;
@@ -2320,6 +2401,12 @@ init();
 /* hook for test.html: the same pipeline as the Analyze button — generate decoders, then run every line
    through the simulator */
 window.WDW = {
+  /* the OS_Regex engine: as a <prematch> (captures false) or a <regex> (captures true) */
+  osRegex(pattern, str, captures){
+    const re = compileOsRegex(pattern, captures);
+    const m = re.exec(str);
+    return m ? { matched: true, rest: str.slice(m.end), caps: m.caps } : { matched: false };
+  },
   /* what Wazuh's pre-decoding leaves for the decoders */
   preDecode(line){
     const h = parseHeader(line);
