@@ -1938,4 +1938,25 @@ function init(){
   initLLM();
 }
 init();
+
+/* hook for test.html: the same pipeline as the Analyze button — generate decoders, then run every line
+   through the simulator */
+window.WDW = {
+  run(text, dialectName){
+    document.querySelector(`input[name="dialect"][value="${dialectName}"]`).checked = true;
+    document.getElementById("logInput").value = text;
+    analyze();
+    const decoders = parseDecodersXml(lastDecoder.xml);
+    return {
+      format: state.format,
+      decoderXml: lastDecoder.xml,
+      rulesXml: lastRules.xml,
+      results: state.lines.map(line => {
+        const r = simulateGeneric(line, decoders);
+        return { line, matched: r.matched, decoder: r.via || r.parent || null,
+          programName: (r.hdr && r.hdr.program) || null, fields: r.fields };
+      })
+    };
+  }
+};
 </script>
