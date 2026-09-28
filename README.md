@@ -19,7 +19,8 @@ Paste a raw log line — get ready-to-use `decoder.xml`, `rules.xml`, and an ins
   - **PCRE2** (`type="pcre2"`, Wazuh 4.2+) for more precise patterns.
 - **Sensible decoder structure**:
   - syslog logs get a `program_name` parent decoder + a fields child decoder;
-  - key=value logs get *one child decoder per field*, so the decoder does not break when the vendor reorders fields;
+  - key=value logs get *one child decoder per field*, all sharing one name (Wazuh sibling decoders), so every field is extracted and the decoder does not break when the vendor reorders fields;
+  - several message variants get one child decoder each, told apart by its own `<prematch>` (Wazuh runs only the first matching child);
   - JSON logs use the built-in `JSON_Decoder` plugin instead of regex.
 - **rules.xml scaffold** — a base `decoded_as` rule plus an example refined rule with a `<field>` condition taken from your actual log.
 - **Built-in logtest simulator** — every pasted line is run through the generated decoders: extracted fields, matched rule ID and level, alert verdict.
