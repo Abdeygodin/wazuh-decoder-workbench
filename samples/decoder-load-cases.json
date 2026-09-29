@@ -1,0 +1,180 @@
+{
+ "wazuh": "4.14.8",
+ "note": "Small decoder files and whether wazuh-analysisd -t accepted them as etc/decoders/local_decoder.xml (with the stock ruleset loaded).",
+ "cases": [
+  {
+   "name": "ok-basic",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-stock-parent",
+   "xml": "<decoder name=\"sshd-x\">\n  <parent>sshd</parent>\n  <prematch>^WDW </prematch>\n  <regex offset=\"after_prematch\">^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-siblings",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>a=(\\S+)</regex>\n  <order>a</order>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>b=(\\S+)</regex>\n  <order>b</order>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-json-offset",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n  <plugin_decoder offset=\"after_prematch\">JSON_Decoder</plugin_decoder>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-type",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n  <type>firewall</type>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-comment-dashes",
+   "xml": "<!-- a -- comment -->\n<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-pcre2-inline",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex type=\"pcre2\">(?i)^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "err-unknown-element",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n  <description>x</description>\n</decoder>",
+   "loads": false,
+   "wazuh": "Invalid element 'description' for decoder 'decoder'"
+  },
+  {
+   "name": "err-no-prematch",
+   "xml": "<decoder name=\"t\">\n  <regex>^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2108): No 'prematch' found in decoder: 't'."
+  },
+  {
+   "name": "err-regex-no-order",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>^(\\S+)</regex>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2107): Decoder configuration error: 't-f'."
+  },
+  {
+   "name": "err-order-no-regex",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2107): Decoder configuration error: 't-f'."
+  },
+  {
+   "name": "err-plugin-regex",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n  <plugin_decoder>JSON_Decoder</plugin_decoder>\n  <regex>^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2111): Additional data to plugin decoder: 't'."
+  },
+  {
+   "name": "err-unknown-plugin",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n  <plugin_decoder>XML_Decoder</plugin_decoder>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2110): Invalid decoder argument for plugin_decoder: 'XML_Decoder'."
+  },
+  {
+   "name": "err-bad-type",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n  <type>router</type>\n</decoder>",
+   "loads": false,
+   "wazuh": "Invalid decoder type 'router'."
+  },
+  {
+   "name": "err-bad-escape",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>^\\[(\\S+)\\]</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(1452): Syntax error on regex: '^\\[(\\S+)\\]'"
+  },
+  {
+   "name": "err-after-prematch-no-prematch",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex offset=\"after_prematch\">^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2120): Invalid offset value: 'after_prematch'"
+  },
+  {
+   "name": "err-prematch-offset-regex",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <prematch offset=\"after_regex\">^x</prematch>\n  <regex>^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2107): Decoder configuration error: 't-f'."
+  },
+  {
+   "name": "err-parent-missing",
+   "xml": "<decoder name=\"t-f\">\n  <parent>no-such-parent</parent>\n  <regex>^(\\S+)</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2101): Parent decoder name invalid: 'no-such-parent'."
+  },
+  {
+   "name": "err-grandchild",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>^(\\S+)</regex>\n  <order>user</order>\n</decoder>\n<decoder name=\"t-g\">\n  <parent>t-f</parent>\n  <regex>^(\\S+)</regex>\n  <order>srcuser</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2101): Parent decoder name invalid: 't-f'."
+  },
+  {
+   "name": "err-sibling-prematch",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>a=(\\S+)</regex>\n  <order>a</order>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <prematch>^b</prematch>\n  <regex>b=(\\S+)</regex>\n  <order>b</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2102): Duplicated decoder with prematch: 't-f'."
+  },
+  {
+   "name": "err-empty-order-word",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>^(\\S+) (\\S+)</regex>\n  <order>user,,srcip</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "decode-xml: Wrong field '' in the order of decoder 't-f'"
+  },
+  {
+   "name": "err-no-name",
+   "xml": "<decoder>\n  <prematch>^wdwlint </prematch>\n</decoder>",
+   "loads": false,
+   "wazuh": "(1230): Invalid element in the configuration: 'decoder'."
+  },
+  {
+   "name": "err-plugin-after-prematch-no-prematch",
+   "xml": "<decoder name=\"t\">\n  <program_name>^wdwlint$</program_name>\n  <plugin_decoder offset=\"after_prematch\">JSON_Decoder</plugin_decoder>\n</decoder>",
+   "loads": false,
+   "wazuh": "(2120): Invalid offset value: 'after_prematch'"
+  },
+  {
+   "name": "err-two-parens-levels",
+   "xml": "<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n<decoder name=\"t-f\">\n  <parent>t</parent>\n  <regex>^((\\S+))</regex>\n  <order>user</order>\n</decoder>",
+   "loads": false,
+   "wazuh": "(1452): Syntax error on regex: '^((\\S+))'"
+  },
+  {
+   "name": "ok-top-level-var",
+   "xml": "<var name=\"X\">y</var>\n<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>\n",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "ok-var-used",
+   "xml": "<var name=\"APP\">wdwlint</var>\n<decoder name=\"t\">\n  <prematch>^$APP </prematch>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "err-var-unknown",
+   "xml": "<var name=\"APP\">wdwlint</var>\n<decoder name=\"t\">\n  <prematch>^$NOPE </prematch>\n</decoder>",
+   "loads": false,
+   "wazuh": "(1227): Error applying XML variables 'etc/decoders/local_decoder.xml': XMLERR: Unknown variable: 'NOPE'.."
+  },
+  {
+   "name": "ok-var-dollar-end",
+   "xml": "<var name=\"APP\">wdwlint</var>\n<decoder name=\"t\">\n  <program_name>^wdwlint$</program_name>\n</decoder>",
+   "loads": true,
+   "wazuh": ""
+  },
+  {
+   "name": "err-top-level-group",
+   "xml": "<group name=\"x\">\n</group>\n<decoder name=\"t\">\n  <prematch>^wdwlint </prematch>\n</decoder>",
+   "loads": false,
+   "wazuh": "(1230): Invalid element in the configuration: 'group'."
+  }
+ ]
+}

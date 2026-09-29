@@ -110,7 +110,7 @@
     letter-spacing:.1em; color:var(--muted); margin:0 0 10px;
   }
 
-  textarea#logInput{
+  textarea#logInput, textarea#decoderInput{
     width:100%; min-height:96px; resize:vertical;
     font-family:var(--mono); font-size:12.5px; line-height:1.55;
     background:var(--surface2); color:var(--ink);
@@ -264,6 +264,16 @@
   details.tips li{margin-bottom:6px; font-size:13px}
   details.tips code{font-family:var(--mono); font-size:12px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:1px 5px}
   .empty{color:var(--muted); font-size:13px; padding:8px 2px}
+  .mode{display:flex; flex-wrap:wrap; gap:6px 18px; margin:-2px 0 10px; font-size:13px}
+  .mode label{display:flex; gap:6px; align-items:center; cursor:pointer}
+  .mode input{accent-color:var(--accent)}
+  textarea#decoderInput{min-height:180px}
+  .check{display:flex; gap:6px; align-items:center; font-size:12.5px; color:var(--muted); cursor:pointer}
+  ul.lint{margin:4px 0 6px; padding-left:18px}
+  ul.lint li{margin:2px 0}
+  details.trace{margin-top:6px; font-size:12px; color:var(--muted)}
+  details.trace summary{cursor:pointer; font-family:var(--mono); font-size:11.5px}
+  details.trace ol{margin:4px 0 0; padding-left:20px; font-family:var(--mono); font-size:11.5px; line-height:1.6}
 </style>
 
 <div class="wrap">
@@ -280,11 +290,27 @@
     <div class="col-in">
       <section class="card">
         <h2>1 · Log lines</h2>
+        <div class="mode" role="radiogroup" aria-label="mode">
+          <label><input type="radio" name="mode" value="generate" checked> Generate a decoder</label>
+          <label><input type="radio" name="mode" value="debug"> Test my decoders</label>
+        </div>
         <textarea id="logInput" spellcheck="false" placeholder="Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2&#10;&#10;You can paste several lines — the first one defines the format, the rest are run through the test."></textarea>
         <div class="row">
           <button class="primary" id="analyzeBtn">Analyze</button>
           <span class="hint" id="inputHint">The first line defines the template; every line is run through the test · Ctrl+Enter</span>
         </div>
+      </section>
+
+      <section class="card" id="importCard" hidden>
+        <h2>2 · Decoders to test</h2>
+        <textarea id="decoderInput" spellcheck="false" placeholder="Paste local_decoder.xml (or any decoder file) here"></textarea>
+        <div class="row">
+          <button class="ghost" id="decoderFileBtn">Open file…</button>
+          <input type="file" id="decoderFile" accept=".xml,text/xml,application/xml" hidden>
+          <button class="ghost" id="debugExample">Load an example</button>
+          <label class="check"><input type="checkbox" id="withStock" checked> they load after the stock Wazuh decoders (etc/decoders)</label>
+        </div>
+        <div class="hint" style="margin-top:6px">The file is read in the browser — nothing is uploaded. Each line shows which decoder takes it, the fields, and why.</div>
       </section>
 
       <section class="card" id="fmtCard" hidden>
@@ -706,20 +732,45 @@ function osMatchToJs(p){
     return (start ? "^" : "") + [...body].map(jsEscapeChar).join("") + (end ? "$" : "");
   }).join("|");
 }
-/* os → the OS_Regex engine above; osmatch (OS_Match, case-insensitive too) and pcre2 → JS RegExp */
+/* PCRE2 runs as a JS RegExp: leading (?i) (?m) (?s) become flags, \A \z \Z and (?P<name> are rewritten.
+   What JS has no equivalent for (other inline flags such as U or x, possessive or atomic groups…) throws a
+   PcreUnsupported: the pattern is fine for Wazuh, the browser just cannot run it */
+class PcreUnsupported extends Error {}
+function pcreToJs(pattern){
+  let p = pattern, flags = "";
+  const lead = p.match(/^\(\?([A-Za-z]+)\)/);
+  if (lead){
+    for (const f of lead[1]){
+      if ("ims".includes(f)){ if (!flags.includes(f)) flags += f; }
+      else throw new PcreUnsupported(`the inline flag (?${f}) has no JavaScript equivalent`);
+    }
+    p = p.slice(lead[0].length);
+  }
+  p = p.replace(/\(\?P</g, "(?<").replace(/\\A/g, "^").replace(/\\[zZ]/g, "$");
+  if (/\(\?[A-Za-z]+\)|\(\?>|[*+?}]\+/.test(p)) throw new PcreUnsupported("inline flags, atomic groups or possessive quantifiers have no JavaScript equivalent");
+  try { return new RegExp(p, flags); }
+  catch(e){ throw /Invalid (group|escape|regular expression)/.test(e.message) && /\(\?|\\[a-zA-Z]/.test(p)
+    ? new PcreUnsupported(e.message) : e; }
+}
+/* os → the OS_Regex engine above; osmatch (OS_Match, case-insensitive too) → JS RegExp; pcre2 → pcreToJs */
 function compileRegexOrThrow(pattern, dialect, captures){
   if (dialect === "os") return compileOsRegex(pattern, captures);
-  return new RegExp(dialect === "osmatch" ? osMatchToJs(pattern) : pattern, dialect === "osmatch" ? "i" : "");
+  if (dialect === "pcre2") return pcreToJs(pattern);
+  return new RegExp(osMatchToJs(pattern), "i");
 }
 /* captures: true for <regex>, false for <prematch>/<program_name> */
 function compileRegex(pattern, dialect, captures){
   try { return compileRegexOrThrow(pattern, dialect, captures); }
   catch(e){ return null; }
 }
-/* null if the pattern compiles, otherwise the reason */
+/* null if the pattern compiles, otherwise the reason; unsupported: Wazuh takes it, the browser cannot run it */
 function regexError(pattern, dialect){
   try { compileRegexOrThrow(pattern, dialect); return null; }
   catch(e){ return e.message; }
+}
+function regexProblem(pattern, dialect){
+  try { compileRegexOrThrow(pattern, dialect); return null; }
+  catch(e){ return { message: e.message, unsupported: e instanceof PcreUnsupported }; }
 }
 /* { end, caps } — end is the offset just after the match — or null */
 function execPattern(re, str){
@@ -883,14 +934,63 @@ function detectFormat(msg){
   return "plain";
 }
 
-function flattenJson(obj, prefix, out){
+/* JSON_Decoder's readJSON() (analysisd/decoders/plugins/json_decoder.c): nested keys joined with dots;
+   numbers that fit in an int as they are, others with %f ("1.500000"); true/false as text; null as "null"
+   (json_null_field "string", the default) or dropped ("discard"); arrays printed as JSON
+   (json_array_structure "array", the default) or joined with commas ("csv") */
+function flattenJson(obj, prefix, out, opts = {}){
   for (const k of Object.keys(obj)){
     const v = obj[k];
     const key = prefix ? prefix + "." + k : k;
-    if (v !== null && typeof v === "object" && !Array.isArray(v)) flattenJson(v, key, out);
-    else out.push({ key, value: Array.isArray(v) ? JSON.stringify(v) : String(v) });
+    if (v !== null && typeof v === "object" && !Array.isArray(v)) flattenJson(v, key, out, opts);
+    else if (v === null){ if (opts.nullField !== "discard") out.push({ key, value: "null" }); }
+    else if (Array.isArray(v)){
+      const value = opts.arrayStructure === "csv"
+        ? v.filter(x => x === null || typeof x !== "object").map(jsonScalar).join(",")
+        : cjsonPrint(v, 0);
+      if (value !== "") out.push({ key, value });
+    }
+    else out.push({ key, value: jsonScalar(v) });
   }
   return out;
+}
+function jsonScalar(v){
+  if (v === null) return "null";
+  if (typeof v === "number")   /* cJSON's valueint is an int: larger integers go through %f too */
+    return Number.isInteger(v) && v >= -2147483648 && v <= 2147483647 ? String(v) : v.toFixed(6);
+  return String(v);
+}
+/* cJSON_Print(): arrays on one line with ", ", objects on separate lines indented with tabs */
+function cjsonPrint(v, depth){
+  if (v === null || typeof v !== "object") return typeof v === "string" ? JSON.stringify(v) : String(v);
+  if (Array.isArray(v)) return "[" + v.map(x => cjsonPrint(x, depth)).join(", ") + "]";
+  const keys = Object.keys(v), pad = "\t".repeat(depth);
+  if (!keys.length) return "{\n" + pad + "}";
+  return "{\n" + keys.map(k => pad + "\t" + JSON.stringify(k) + ":\t" + cjsonPrint(v[k], depth + 1)).join(",\n") + "\n" + pad + "}";
+}
+/* cJSON_ParseWithOpts(input, …, 0): leading blanks are skipped and whatever follows the first JSON value
+   is ignored */
+function parseJsonPrefix(text){
+  let i = 0;
+  while (i < text.length && /\s/.test(text[i])) i++;
+  if (text[i] !== "{" && text[i] !== "[") return JSON.parse(text.slice(i));
+  let depth = 0, inString = false;
+  for (let j = i; j < text.length; j++){
+    const c = text[j];
+    if (inString){ if (c === "\\") j++; else if (c === '"') inString = false; continue; }
+    if (c === '"') inString = true;
+    else if (c === "{" || c === "[") depth++;
+    else if ((c === "}" || c === "]") && --depth === 0) return JSON.parse(text.slice(i, j + 1));
+  }
+  throw new Error("unterminated JSON");
+}
+/* the fields JSON_Decoder adds for this input (a JSON object), with the decoder's json_* options */
+function jsonDecoderFields(text, d){
+  try {
+    const v = parseJsonPrefix(text);
+    if (v === null || typeof v !== "object" || Array.isArray(v)) return [];
+    return flattenJson(v, "", [], { nullField: d && d.jsonNull, arrayStructure: d && d.jsonArray }).map(f => [f.key, f.value]);
+  } catch(e){ return []; }
 }
 
 function sanitizeName(s){ return s.replace(/[^A-Za-z0-9_.-]/g, "_"); }
@@ -1026,7 +1126,7 @@ function parseCEF(msg){
 const state = {
   lines: [], firstLine:"", header:null, format:"plain",
   msg:"", tokens:[], jsonFields:[], cef:null,
-  analyzed:false
+  analyzed:false, debugged:false
 };
 
 /* ---------- decoder.xml generation ---------- */
@@ -1672,39 +1772,94 @@ The "expected_fields" list is verified against a real decoding run — list exac
 
 /* parse decoder XML into simulatable structures */
 function parseDecodersXml(xml){
-  /* read it the way os_xml does: & is a plain character, \< is an escaped <, entities stay literal */
-  const std = xml.replace(/&/g, "&amp;").replace(/\\</g, "\\&lt;");
+  /* read it the way os_xml does: & is a plain character, \< is an escaped <, entities stay literal, and a
+     comment may contain "--" (stock files do) — so comments are dropped before the strict XML parser */
+  const std = xml.replace(/<!--[\s\S]*?-->/g, "").replace(/&/g, "&amp;").replace(/\\</g, "\\&lt;");
   const doc = new DOMParser().parseFromString("<root>" + std + "</root>", "text/xml");
   const err = doc.querySelector("parsererror");
   if (err) throw new Error("XML parse error: " + err.textContent.replace(/\s+/g," ").slice(0,180));
+  const varErrors = applyXmlVariables(doc);
   const list = [...doc.querySelectorAll("decoder")].map(d => {
-    const el = t => d.querySelector(t);
-    /* repeated elements are concatenated, as decode-xml.c does; the last type/offset attribute wins */
+    /* element names are compared case-insensitively, as decode-xml.c does */
+    const els = t => [...d.children].filter(c => c.tagName.toLowerCase() === t);
+    const last = t => { const e = els(t); return e.length ? e[e.length - 1] : null; };
+    /* repeated elements are concatenated (_loadmemory appends); the last type/offset attribute wins */
     const opt = t => {
-      const els = [...d.children].filter(c => c.tagName === t);
-      if (!els.length) return { text: null, attr: () => null };
-      const attr = a => els.reduce((v, e) => e.getAttribute(a) || v, null);
-      return { text: els.map(e => e.textContent).join(""), attr };
+      const found = els(t);
+      if (!found.length) return { text: null, attr: () => null, count: 0 };
+      const attr = a => found.reduce((v, e) => e.getAttribute(a) || v, null);
+      return { text: found.map(e => e.textContent).join(""), attr, count: found.length,
+               offsets: found.map(e => e.getAttribute("offset")) };
     };
-    const rx = opt("regex"), pm = opt("prematch"), pn = opt("program_name"), ord = el("order");
+    const rx = opt("regex"), pm = opt("prematch"), pn = opt("program_name"), ord = last("order");
+    const plugin = last("plugin_decoder");
+    const text = t => { const e = last(t); return e ? e.textContent.trim() : null; };
     const pnType = pn.attr("type");
     return {
       name: d.getAttribute("name") || "(unnamed)",
-      parent: el("parent") ? el("parent").textContent.trim() : null,
+      hasName: d.hasAttribute("name"),
+      tags: [...d.children].map(c => c.tagName),
+      parent: last("parent") ? last("parent").textContent.trim() : null,
       program: pn.text,
       programType: pnType === "pcre2" ? "pcre2" : pnType === "osregex" ? "os" : "osmatch",
+      programTypeRaw: pnType,
       prematch: pm.text,
       prematchType: pm.attr("type") === "pcre2" ? "pcre2" : "os",
+      prematchTypeRaw: pm.attr("type"),
       prematchOffset: pm.attr("offset"),
       regex: rx.text,
       regexType: rx.attr("type") === "pcre2" ? "pcre2" : "os",
+      regexTypeRaw: rx.attr("type"),
+      regexOffsets: rx.offsets || [],
       offset: rx.attr("offset"),
+      orderRaw: ord ? ord.textContent : null,
       order: ord ? ord.textContent.split(",").map(s => s.trim()).filter(Boolean) : [],
-      plugin: el("plugin_decoder") ? el("plugin_decoder").textContent.trim() : null
+      plugin: plugin ? plugin.textContent.trim() : null,
+      pluginOffset: plugin ? plugin.getAttribute("offset") : null,
+      useOwnName: text("use_own_name") === "true",
+      jsonNull: (text("json_null_field") || "").toLowerCase() || null,
+      jsonArray: (text("json_array_structure") || "").toLowerCase() || null,
+      type: text("type"),
+      fts: text("fts"),
+      accumulate: last("accumulate") !== null
     };
   });
-  if (!list.length) throw new Error("No <decoder> elements found in the response.");
+  if (!list.length) throw new Error("No <decoder> elements found.");
+  /* ReadDecodeXML accepts only <decoder> at the top level, besides <var> */
+  list.otherTopLevel = [...doc.documentElement.children].map(c => c.tagName)
+    .filter(t => !["decoder", "var"].includes(t.toLowerCase()));
+  list.varErrors = varErrors;
   return list;
+}
+
+/* OS_ApplyVariables() (os_xml_variables.c): with at least one <var name="X">…</var>, every value longer
+   than two characters is scanned for $name — the name ends at $ . | , space or the end — and an unknown
+   name is an error; "$" alone or "$(…" is left as it is. Returns the errors. */
+function applyXmlVariables(doc){
+  const vars = new Map([...doc.documentElement.children]
+    .filter(c => c.tagName.toLowerCase() === "var" && c.hasAttribute("name"))
+    .map(c => [c.getAttribute("name").toLowerCase(), c.textContent]));
+  if (!vars.size) return [];
+  const errors = [];
+  const substitute = text => {
+    if (text.length <= 2 || !text.includes("$")) return text;
+    let out = "", i = 0;
+    while (i < text.length){
+      if (text[i] !== "$"){ out += text[i++]; continue; }
+      let j = i + 1;
+      while (j < text.length && !"$.|, ".includes(text[j])) j++;
+      const name = text.slice(i + 1, j);
+      if (name && vars.has(name.toLowerCase())){ out += vars.get(name.toLowerCase()); i = j; continue; }
+      if (name && !name.startsWith("(")) errors.push(`unknown variable "$${name}" — with a <var> in the file every $name is a variable`);
+      out += text[i++];
+    }
+    return out;
+  };
+  doc.querySelectorAll("decoder, decoder *").forEach(el => {
+    [...el.attributes].forEach(a => el.setAttribute(a.name, substitute(a.value)));
+    if (el.children.length === 0 && el.tagName.toLowerCase() !== "decoder") el.textContent = substitute(el.textContent);
+  });
+  return [...new Set(errors)];
 }
 
 /* the block of rule IDs the AI may use: from the "First rule ID" setting, 100 IDs, inside the custom range */
@@ -1774,35 +1929,64 @@ function checkAIRules(rules, decoders){
   return fails;
 }
 
-/* generic simulator for arbitrary decoder sets (AI output, future imports).
-   Mirrors DecodeEvent() in wazuh/src/analysisd/decoders/decoder.c. */
-function simulateGeneric(line, decoders){
+/* generic simulator for arbitrary decoder sets (generated, AI output, imported).
+   Mirrors DecodeEvent() in wazuh/src/analysisd/decoders/decoder.c. trace (optional) collects the steps
+   in plain words. With opts.stock the stock parent decoders (embedded index) come first, as in Wazuh:
+   stock files load before etc/decoders. */
+function simulateGeneric(line, decoders, trace, opts = {}){
+  const say = t => { if (trace) trace.push(t); };
   const hdr = parseHeader(line);
   const msg = hdr ? hdr.msg : line;
   const hasProgram = !!(hdr && hdr.program);
-  /* Wazuh keeps two parent lists: a line with a program name is checked only against decoders
-     that have <program_name>, a line without one only against decoders without it */
-  for (const p of decoders.filter(d => !d.parent && !!d.program === hasProgram)){
-    let pmEnd = 0;
-    if (p.program){
-      const re = compileRegex(p.program, p.programType);
-      if (!re || !execPattern(re, hdr.program)) continue;
+  if (hdr && hdr.pri) say(`pre-decoding: ${hdr.pri} removed, as Wazuh's syslog listener does (wazuh-logtest keeps it and sees the whole line)`);
+  say(hasProgram
+    ? `pre-decoding: program_name "${hdr.program}" — only decoders with <program_name> are checked`
+    : `pre-decoding: no program_name — only decoders without <program_name> are checked`);
+
+  if (opts.stock){
+    const sp = stockDecoderFor(line);
+    if (sp){
+      const kids = decoders.filter(d => d.parent === sp.name);
+      if (!kids.length){
+        say(`stock decoder "${sp.name}" (${sp.file}) matches first — no decoder here runs`);
+        return { matched: false, stock: sp, fields: [], hdr };
+      }
+      say(`stock decoder "${sp.name}" (${sp.file}) matches first; your children of it run only if none of its own children claims the line (not simulated)`);
+      const pm = sp.prematch ? execPattern(sp.prematch, msg) : null;
+      const parent = { name: sp.name, stockFile: sp.file };
+      const r = runChildDecoders(parent, kids, msg, pm ? pm.end : 0, say);
+      return { matched: true, parent: sp.name, stock: sp, attachedToStock: true, hdr, ...r };
     }
-    if (p.prematch){
+  }
+
+  /* Wazuh keeps two parent lists: a line with a program name is checked only against decoders
+     that have <program_name> (an empty one matches any program), a line without one only against
+     decoders without it */
+  const parents = decoders.filter(d => !d.parent);
+  for (const p of parents){
+    if ((p.program !== null) !== hasProgram){ say(`"${p.name}": skipped — ${p.program !== null ? "has" : "has no"} <program_name>`); continue; }
+    let pmEnd = 0;
+    if (p.program !== null){
+      const re = compileRegex(p.program, p.programType);
+      if (!re || !execPattern(re, hdr.program)){ say(`"${p.name}": <program_name> ${p.program} does not match "${hdr.program}"`); continue; }
+    }
+    if (p.prematch !== null){
       const re = compileRegex(p.prematch, p.prematchType);
       const m = re && execPattern(re, msg);
-      if (!m) continue;
+      if (!m){ say(`"${p.name}": <prematch> does not match`); continue; }
       pmEnd = m.end;
     }
-    const { fields, via } = runChildDecoders(p, decoders, msg, pmEnd);
-    return { matched:true, parent:p.name, via, fields, hdr };
+    say(`"${p.name}": matches — the first matching parent decoder wins`);
+    const r = runChildDecoders(p, decoders, msg, pmEnd, say);
+    return { matched: true, parent: p.name, hdr, ...r };
   }
-  return { matched:false, fields:[], hdr };
+  if (!parents.length) say("no parent decoders");
+  return { matched: false, fields: [], hdr };
 }
 
-function runChildDecoders(p, decoders, msg, pmEnd){
+function runChildDecoders(p, decoders, msg, pmEnd, say = () => {}){
   const fields = [];
-  let via = null;
+  let via = null, name = p.name, unsimulated = null;
   /* a parent without children runs its own regex/plugin */
   let kids = decoders.filter(d => d.parent === p.name);
   if (!kids.length) kids = [p];
@@ -1811,46 +1995,67 @@ function runChildDecoders(p, decoders, msg, pmEnd){
   const getNext = kids.map((k, i) => k !== p && kids.slice(i + 1).some(o => o.name === k.name));
 
   /* pick the first child whose prematch matches; a child without prematch is taken at once */
-  let sel = kids[0] === p ? 0 : -1, cmatch = pmEnd;
+  let sel = kids[0] === p ? 0 : -1, cmatch = pmEnd, childPrematched = false;
   for (let i = 0; sel < 0 && i < kids.length; ){
     const k = kids[i];
-    if (!k.prematch){ sel = i; break; }
+    if (k.prematch === null){ sel = i; say(`child "${k.name}": taken — it has no <prematch>`); break; }
     const from = k.prematchOffset === "after_parent" ? pmEnd : 0;
     const re = compileRegex(k.prematch, k.prematchType);
     const m = re && execPattern(re, msg.slice(from));
-    if (m){ sel = i; cmatch = from + m.end; break; }
+    if (m){ sel = i; cmatch = from + m.end; childPrematched = true; say(`child "${k.name}": <prematch> matches — taken`); break; }
+    say(`child "${k.name}": <prematch> does not match`);
     if (getNext[i]){
       do { i++; } while (i < kids.length && getNext[i]);
       if (i >= kids.length) break;
     }
     i++;
   }
-  if (sel < 0) return { fields, via };
+  if (sel < 0){ say("no child decoder claimed the line — only the parent matched"); return { fields, via, name }; }
+  /* the reported decoder is the child only when its own prematch matched (decoder.c sets decoder_info
+     there), and its name only with use_own_name */
+  if (childPrematched && kids[sel].useOwnName) name = kids[sel].name;
 
   let regexPrev = null;
   for (let i = sel; i < kids.length; ){
     const k = kids[i];
-    if (k.plugin === "JSON_Decoder"){
-      try { flattenJson(JSON.parse(msg.trim()), "", []).forEach(f => fields.push([f.key, f.value])); } catch(e){}
-    } else if (k.regex){
+    if (k.plugin){
+      if (k.plugin === "JSON_Decoder"){
+        /* input: the log, or log_after_parent (set only when the child's prematch matched) /
+           log_after_prematch, as JSON_Decoder_Exec picks it */
+        let input = msg;
+        if (k.pluginOffset === "after_parent") input = k === p || !childPrematched ? null : msg.slice(pmEnd);
+        else if (k.pluginOffset === "after_prematch") input = msg.slice(k === p ? pmEnd : cmatch);
+        const got = input === null ? [] : jsonDecoderFields(input, k);
+        got.forEach(f => fields.push(f));
+        say(`"${k.name}": JSON_Decoder ${got.length ? `added ${got.length} field(s)` : "found no JSON object there"}`);
+      } else {
+        unsimulated = k.plugin;
+        say(`"${k.name}": ${k.plugin} is not simulated — its fields are unknown here`);
+      }
+    } else if (k.regex !== null){
       let from = 0;
       if (k.offset === "after_parent" || (k === p && k.offset === "after_prematch")) from = pmEnd;
       else if (k.offset === "after_prematch") from = cmatch;
       else if (k.offset === "after_regex") from = regexPrev !== null ? regexPrev : cmatch;
       const re = compileRegex(k.regex, k.regexType, true);
+      if (!re) say(`"${k.name}": this <regex> cannot run in the browser — treated as not matching`);
       const m = re && execPattern(re, msg.slice(from));
       if (!m){
+        say(`"${k.name}": <regex> does not match${k.offset ? ` (offset ${k.offset})` : ""} — ${k.order.join(", ") || "no fields"} not extracted`);
         if (getNext[i]){ i++; continue; }
         break;
       }
       regexPrev = from + m.end;
-      k.order.forEach((n,j) => { if (m.caps[j] !== undefined) fields.push([n, m.caps[j]]); });
+      const got = [];
+      /* an empty capture adds no field in Wazuh */
+      k.order.forEach((n,j) => { if (m.caps[j] !== undefined && m.caps[j] !== ""){ fields.push([n, m.caps[j]]); got.push(n); } });
+      say(`"${k.name}": <regex> matches — ${got.join(", ") || "no fields"}`);
       if (!via && k !== p) via = k.name;
     } else break;
     if (!getNext[i]) break;
     i++;
   }
-  return { fields, via };
+  return { fields, via, name, unsimulated };
 }
 
 function countCaptures(pattern, type){
@@ -1943,32 +2148,11 @@ async function runAIAssist(){
       let decs;
       try { decs = parseDecodersXml(obj.decoders || ""); }
       catch(e){ feedback = e.message; aiLog(e.message + " — retrying", "warn"); continue; }
-      /* structural checks first: capture/<order> counts and nesting depth */
-      const structFails = [];
-      const byName = Object.fromEntries(decs.map(d => [d.name, d]));
-      decs.forEach(d => {
-        if (d.regex && d.order.length){
-          const caps = countCaptures(d.regex, d.regexType);
-          if (caps !== d.order.length)
-            structFails.push(`Decoder "${d.name}": the regex has ${caps} capture group(s) but <order> lists ${d.order.length} field(s) — the counts must be equal.`);
-        }
-        if (d.parent && byName[d.parent] && byName[d.parent].parent)
-          structFails.push(`Decoder "${d.name}": its <parent> "${d.parent}" itself has a parent — Wazuh supports only two decoder levels. Point <parent> at the top-level decoder instead.`);
-        if (d.parent && !byName[d.parent])
-          structFails.push(`Decoder "${d.name}": <parent> "${d.parent}" does not exist in your output.`);
-        [["program_name", d.program, d.programType], ["prematch", d.prematch, d.prematchType], ["regex", d.regex, d.regexType]]
-          .forEach(([tag, pattern, type]) => {
-            const err = pattern !== null && regexError(pattern, type);
-            if (err) structFails.push(`Decoder "${d.name}": <${tag}> does not compile in Wazuh — ${err}.`);
-            if (pattern !== null && /&(?:lt|gt|amp|quot|apos);/.test(pattern))
-              structFails.push(`Decoder "${d.name}": <${tag}> contains an XML entity — Wazuh does not decode them, so it never matches. Write < as \\< and > & as they are.`);
-          });
-      });
-      /* decoders_list.c rejects a same-name sibling that has its own prematch */
-      decs.forEach((d, i) => {
-        if (d.parent && d.prematch && decs.slice(0, i).some(o => o.parent === d.parent && o.name === d.name))
-          structFails.push(`Decoder "${d.name}": sibling decoders (same name, same parent) cannot have a <prematch> — Wazuh refuses to load it. Drop the prematch or give this child its own name.`);
-      });
+      /* structural checks first: everything Wazuh would refuse to load, plus exact capture/<order> counts
+         and XML entities (they load but never match) */
+      const lint = lintDecoders(decs);
+      const structFails = [...lint.errors, ...lint.warnings.filter(w => ["captures", "entity", "pcre2-unsupported"].includes(w.kind))]
+        .map(x => `Decoder "${x.decoder}": ${x.msg}.`);
       if (structFails.length){
         feedback = structFails.join("\n");
         aiLog(`structure check failed (${structFails.length}) — sending errors back`, "warn");
@@ -2157,9 +2341,227 @@ function renderStockNote(){
   el.hidden = false;
 }
 
+/* ---------- testing existing decoders ---------- */
+
+const DECODER_ELEMENTS = ["parent", "regex", "prematch", "program_name", "ftscomment", "use_own_name", "plugin_decoder",
+  "json_null_field", "json_array_structure", "order", "accumulate", "fts", "type"];
+const PLUGIN_DECODERS = ["PF_Decoder", "SymantecWS_Decoder", "SonicWall_Decoder", "OSSECAlert_Decoder", "JSON_Decoder"];
+const DECODER_TYPES = ["firewall", "ids", "web-log", "syslog", "squid", "windows", "host-information", "ossec"];
+
+/* What ReadDecodeXML() / OS_AddOSDecoder() (decode-xml.c, decoders_list.c, 4.14) refuse — errors stop
+   wazuh-analysisd — and what loads but misbehaves or is not simulated here. opts.stock: a <parent> may
+   name a stock decoder. */
+function lintDecoders(decs, opts = {}){
+  const errors = [], warnings = [];
+  const err = (d, msg) => errors.push({ decoder: d ? d.name : null, msg });
+  const warn = (d, msg, kind) => warnings.push({ decoder: d ? d.name : null, msg, kind });
+  const parents = new Set(decs.filter(d => d.parent === null).map(d => d.name));
+  const stock = opts.stock && stockParentList() ? new Set(stockParentList().map(p => p.name)) : new Set();
+  let pcre2 = false;
+  (decs.otherTopLevel || []).forEach(t => err(null, `<${t}> at the top level — a decoder file holds only <decoder> and <var> elements`));
+  (decs.varErrors || []).forEach(m => err(null, m));
+
+  decs.forEach((d, i) => {
+    if (!d.hasName) err(d, "the <decoder> has no name attribute");
+    d.tags.forEach(t => { if (!DECODER_ELEMENTS.includes(t.toLowerCase())) err(d, `<${t}> is not a decoder option (Wazuh: "Invalid element")`); });
+    if (d.parent === null && d.prematch === null && d.program === null) err(d, "a parent decoder needs a <prematch> or a <program_name>");
+    if (d.regex !== null && d.orderRaw === null) err(d, "<regex> without <order>");
+    if (d.regex === null && d.orderRaw !== null) err(d, "<order> without <regex>");
+    if (d.regex === null && d.fts !== null) err(d, "<fts> without <regex>");
+    if (d.orderRaw !== null && d.orderRaw.split(",").some(w => !w.trim())) err(d, "an empty field name in <order>");
+    if (d.plugin !== null){
+      if (!PLUGIN_DECODERS.includes(d.plugin)) err(d, `unknown <plugin_decoder> "${d.plugin}" — Wazuh has ${PLUGIN_DECODERS.join(", ")}`);
+      if (d.regex !== null || d.orderRaw !== null) err(d, "<plugin_decoder> cannot be combined with <regex> or <order>");
+      if (PLUGIN_DECODERS.includes(d.plugin) && d.plugin !== "JSON_Decoder") warn(d, `${d.plugin} is not simulated here — its fields will not show`, "unsimulated");
+    }
+    if (d.type !== null && !DECODER_TYPES.includes(d.type)) err(d, `invalid <type> "${d.type}"`);
+
+    [["program_name", d.program, d.programType], ["prematch", d.prematch, d.prematchType], ["regex", d.regex, d.regexType]]
+      .forEach(([tag, pattern, type]) => {
+        if (pattern === null) return;
+        const e = regexProblem(pattern, type);
+        if (e && e.unsupported) warn(d, `<${tag}> cannot run in the browser (${e.message}) — this decoder is not simulated`, "pcre2-unsupported");
+        else if (e) err(d, `<${tag}> does not compile — ${e.message}`);
+        if (type === "pcre2") pcre2 = true;
+        if (/&(?:lt|gt|amp|quot|apos);/.test(pattern))
+          warn(d, `<${tag}> contains an XML entity — Wazuh does not decode them, so it never matches. Write < as \\< and > & as they are`, "entity");
+      });
+
+    /* offsets */
+    if (d.regexOffsets.findIndex(Boolean) > 0) err(d, "only the first <regex> may have an offset");
+    const off = d.offset;
+    if (off !== null && !["after_parent", "after_prematch", "after_regex"].includes(off)) warn(d, `unknown <regex> offset "${off}" — Wazuh ignores it`, "offset");
+    if (off === "after_parent" && d.parent === null) err(d, 'offset="after_parent" on a decoder without <parent>');
+    if (off === "after_prematch" && d.parent !== null && d.prematch === null) err(d, 'offset="after_prematch" needs a <prematch> in the same decoder');
+    if (off === "after_regex" && d.parent === null) err(d, 'offset="after_regex" on a decoder without <parent>');
+    if (d.prematchOffset !== null && d.prematchOffset !== "after_parent") err(d, '<prematch> accepts only offset="after_parent"');
+    if (d.prematchOffset === "after_parent" && d.parent === null) err(d, '<prematch offset="after_parent"> on a decoder without <parent>');
+    if (d.pluginOffset !== null){
+      if (!["after_parent", "after_prematch"].includes(d.pluginOffset)) err(d, `invalid <plugin_decoder> offset "${d.pluginOffset}"`);
+      if (d.pluginOffset === "after_parent" && d.parent === null) err(d, '<plugin_decoder offset="after_parent"> on a decoder without <parent>');
+      if (d.pluginOffset === "after_prematch" && d.prematch === null) err(d, '<plugin_decoder offset="after_prematch"> needs a <prematch>');
+    }
+
+    /* parent: Wazuh looks it up among the top-level decoders only */
+    if (d.parent !== null && !parents.has(d.parent)){
+      if (stock.has(d.parent))
+        warn(d, `its <parent> "${d.parent}" is a stock decoder — the stock children of "${d.parent}" come first, and they are not simulated`, "stock-parent");
+      else if (decs.some(o => o.name === d.parent)) err(d, `<parent> "${d.parent}" is itself a child — Wazuh has only two levels of decoders`);
+      else err(d, `<parent> "${d.parent}" does not exist${opts.stock ? " here or in the stock ruleset" : ""}`);
+    }
+
+    /* same-name siblings (decoders_list.c) */
+    const before = decs.slice(0, i).filter(o => o.parent !== null && o.parent === d.parent && o.name === d.name);
+    if (d.parent !== null && before.length){
+      if (d.prematch !== null) err(d, "a same-name sibling cannot have its own <prematch>");
+      if (d.fts !== null) err(d, "a same-name sibling cannot have <fts>");
+      const works = x => x.regex !== null || x.plugin !== null;
+      if (!works(d) || before.some(o => !works(o))) err(d, "same-name siblings all need a <regex> or a <plugin_decoder>");
+    }
+
+    /* captures vs <order> (with | each alternative has its own groups: only the largest count matters) */
+    if (d.regex !== null && d.order.length && !regexProblem(d.regex, d.regexType)){
+      const caps = d.regexType === "os"
+        ? Math.max(...d.regex.split(/(?<!\\)\|/).map(a => countCaptures(a, "os")))
+        : countCaptures(d.regex, d.regexType);
+      if (caps > d.order.length) warn(d, `the regex has ${caps} groups but <order> names ${d.order.length} — the extra captures are dropped`, "captures");
+      else if (caps < d.order.length) warn(d, `<order> names ${d.order.length} fields but the regex has ${caps} groups — ${d.order.slice(caps).join(", ")} never get a value`, "captures");
+    }
+    if (d.accumulate) warn(d, "<accumulate> joins fields across events — not simulated", "unsimulated");
+  });
+  if (pcre2) warn(null, "PCRE2 patterns run as JavaScript regular expressions here — close, but not identical to PCRE2", "pcre2");
+  return { errors, warnings };
+}
+
+function currentMode(){ return document.querySelector('input[name="mode"]:checked').value; }
+
+function selectTab(name){
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  ["decoder", "rules", "test"].forEach(t => document.getElementById("tab-" + t).hidden = (t !== name));
+}
+
+function applyMode(){
+  const debug = currentMode() === "debug";
+  document.getElementById("importCard").hidden = !debug;
+  document.getElementById("analyzeBtn").textContent = debug ? "Test decoders" : "Analyze";
+  document.getElementById("inputHint").textContent = debug
+    ? "Every line goes through your decoders, as in wazuh-logtest · Ctrl+Enter"
+    : "The first line defines the template; every line is run through the test · Ctrl+Enter";
+  document.querySelectorAll('.tabs button[data-tab="decoder"], .tabs button[data-tab="rules"]').forEach(b => b.hidden = debug);
+  ["fmtCard", "fieldsCard", "settingsCard", "aiCard"].forEach(id => document.getElementById(id).hidden = debug || !state.analyzed);
+  document.getElementById("aiBanner").hidden = true;
+  if (debug){
+    document.getElementById("outCol").hidden = !state.debugged;
+    selectTab("test");
+    if (state.debugged) runDebug();
+  } else {
+    document.getElementById("outCol").hidden = !state.analyzed;
+    selectTab("decoder");
+    if (state.analyzed) regenerate();
+  }
+}
+
+/* the whole debug view: load check, then every line as wazuh-logtest would show it */
+function runDebug(){
+  const lines = document.getElementById("logInput").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const xml = document.getElementById("decoderInput").value;
+  const hint = document.getElementById("inputHint");
+  if (!xml.trim()){
+    hint.textContent = "Paste your decoders (local_decoder.xml) into the box below first";
+    hint.style.color = "var(--warn)";
+    return;
+  }
+  hint.style.color = "";
+  const withStock = document.getElementById("withStock").checked;
+  state.debugged = true;
+  document.getElementById("outCol").hidden = false;
+  selectTab("test");
+  const out = document.getElementById("testOut");
+  const result = debugDecoders(xml, lines, withStock);
+  if (result.parseError){
+    out.innerHTML = `<div class="note warn">✗ ${htmlEscape(result.parseError)} — Wazuh would not load this file.</div>`;
+    return;
+  }
+  const { lint, results } = result;
+  let html = "";
+  const decoded = results.filter(r => r.matched && !(r.stock && !r.attachedToStock)).length;
+  const shadowed = results.filter(r => r.stock && !r.attachedToStock).length;
+  html += `<div class="test-summary ${lint.errors.length || decoded < results.length ? "some" : "allok"}">` +
+    (lint.errors.length ? `✗ Wazuh would refuse to load this file (${lint.errors.length} error${lint.errors.length > 1 ? "s" : ""}) · ` : "") +
+    `${decoded} / ${results.length} line(s) decoded by these decoders` + (shadowed ? ` · ${shadowed} taken by stock decoders first` : "") + `</div>`;
+  const item = x => `<li>${x.decoder ? `<b>${htmlEscape(x.decoder)}</b>: ` : ""}${htmlEscape(x.msg)}</li>`;
+  if (lint.errors.length)
+    html += `<div class="note warn"><b>wazuh-analysisd would not start with this file:</b><ul class="lint">${lint.errors.map(item).join("")}</ul>The lines below are simulated as written anyway.</div>`;
+  if (lint.warnings.length)
+    html += `<div class="note"><b>Loads, but:</b><ul class="lint">${lint.warnings.map(item).join("")}</ul></div>`;
+  if (!results.length) html += `<div class="empty">Add log lines above to see how these decoders handle them.</div>`;
+  results.forEach(r => {
+    html += `<div class="test-line"><div class="raw">${htmlEscape(r.line)}</div>`;
+    if (r.stock && !r.attachedToStock)
+      html += `<div class="verdict part">⚠ taken by the stock decoder "${htmlEscape(r.stock.name)}" (${htmlEscape(r.stock.file)}) — none of these decoders runs</div>`;
+    else if (r.matched)
+      html += `<div class="verdict ok">✓ decoder "${htmlEscape(r.name)}"` +
+        (r.via && r.via !== r.name ? ` — fields from "${htmlEscape(r.via)}"` : "") +
+        (r.attachedToStock ? ` — your children of the stock decoder; its own children are not simulated` : "") + `</div>`;
+    else
+      html += `<div class="verdict fail">✗ none of these decoders matched</div>`;
+    const pre = r.hdr ? [["timestamp", r.hdr.timestamp], ["hostname", r.hdr.hostname], ["program_name", r.hdr.program]].filter(x => x[1]) : [];
+    const all = [...pre, ...r.fields];
+    if (all.length)
+      html += `<div class="kvlist">` + all.map(([k, v]) => `<span class="fk">${htmlEscape(k)}</span><span class="fv">${htmlEscape(v)}</span>`).join("") + `</div>`;
+    if (r.unsimulated) html += `<div class="rule-hit">${htmlEscape(r.unsimulated)} ran here in Wazuh — its fields are not simulated</div>`;
+    html += `<details class="trace"${r.matched && !r.stock ? "" : " open"}><summary>why</summary><ol>` +
+      r.trace.map(t => `<li>${htmlEscape(t)}</li>`).join("") + `</ol></details></div>`;
+  });
+  out.innerHTML = html;
+}
+
+/* shared by the debug view and test.html */
+function debugDecoders(xml, lines, withStock){
+  let decs;
+  try { decs = parseDecodersXml(xml); } catch(e){ return { parseError: e.message }; }
+  const lint = lintDecoders(decs, { stock: withStock });
+  const results = lines.map(line => {
+    const trace = [];
+    const r = simulateGeneric(line, decs, trace, { stock: withStock });
+    return { line, trace, ...r };
+  });
+  return { lint, results };
+}
+
+const DEBUG_EXAMPLE = {
+  decoders: `<!-- local_decoder.xml -->
+<decoder name="payment-gw">
+  <prematch>^\\d+-\\d+-\\d+ \\d+:\\d+:\\d+ \\w+ payment-gw: </prematch>
+</decoder>
+
+<decoder name="payment-gw-fields">
+  <parent>payment-gw</parent>
+  <regex offset="after_parent">for user (\\S+) from (\\d+.\\d+.\\d+.\\d+)</regex>
+  <order>dstuser, srcip</order>
+</decoder>
+
+<decoder name="payment-gw-fields">
+  <parent>payment-gw</parent>
+  <regex>amount=(\\d+.\\d+)</regex>
+  <order>amount</order>
+</decoder>
+
+<!-- a message the stock sshd decoders do not know: a child of the stock "sshd" decoder -->
+<decoder name="sshd-otp">
+  <parent>sshd</parent>
+  <prematch>^OTP rejected </prematch>
+  <regex offset="after_prematch">^for (\\S+) from (\\S+)</regex>
+  <order>dstuser, srcip</order>
+</decoder>`,
+  lines: `2026-07-11 10:21:04 WARN payment-gw: transaction declined for user a.ivanov from 10.20.30.7 amount=1500.00
+Jun 24 11:31:02 srv01 sshd[3120]: OTP rejected for deploy from 203.0.113.50`
+};
+
 /* ---------- analysis ---------- */
 
 function analyze(){
+  if (currentMode() === "debug"){ runDebug(); return; }
   const raw = document.getElementById("logInput").value;
   const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   const hint = document.getElementById("inputHint");
@@ -2330,6 +2732,24 @@ function init(){
   }
 
   document.getElementById("analyzeBtn").addEventListener("click", analyze);
+  document.querySelectorAll('input[name="mode"]').forEach(r => r.addEventListener("change", applyMode));
+  document.getElementById("decoderInput").addEventListener("keydown", e => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)){ e.preventDefault(); runDebug(); }
+  });
+  document.getElementById("withStock").addEventListener("change", () => { if (state.debugged) runDebug(); });
+  document.getElementById("decoderFileBtn").addEventListener("click", () => document.getElementById("decoderFile").click());
+  document.getElementById("decoderFile").addEventListener("change", async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    document.getElementById("decoderInput").value = await f.text();
+    e.target.value = "";
+    if (document.getElementById("logInput").value.trim()) runDebug();
+  });
+  document.getElementById("debugExample").addEventListener("click", () => {
+    document.getElementById("decoderInput").value = DEBUG_EXAMPLE.decoders;
+    document.getElementById("logInput").value = DEBUG_EXAMPLE.lines;
+    runDebug();
+  });
   document.getElementById("logInput").addEventListener("keydown", e => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)){ e.preventDefault(); analyze(); }
   });
@@ -2353,14 +2773,8 @@ function init(){
   document.querySelectorAll('input[name="dialect"]').forEach(r =>
     r.addEventListener("change", regenerate));
 
-  document.querySelectorAll(".tabs button").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      ["decoder","rules","test"].forEach(t =>
-        document.getElementById("tab-" + t).hidden = (t !== btn.dataset.tab));
-    });
-  });
+  document.querySelectorAll(".tabs button").forEach(btn =>
+    btn.addEventListener("click", () => selectTab(btn.dataset.tab)));
 
   document.querySelectorAll("button.dl").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2406,6 +2820,14 @@ window.WDW = {
     const re = compileOsRegex(pattern, captures);
     const m = re.exec(str);
     return m ? { matched: true, rest: str.slice(m.end), caps: m.caps } : { matched: false };
+  },
+  /* the debug view without the page: load check and per-line results */
+  debug(xml, text, withStock){
+    const r = debugDecoders(xml, text.split(/\r?\n/).map(x => x.trim()).filter(Boolean), withStock);
+    if (r.parseError) return r;
+    return { lint: r.lint, results: r.results.map(x => ({ line: x.line, matched: x.matched, name: x.name || null,
+      parent: x.parent || null, via: x.via || null, stock: x.stock ? x.stock.name : null,
+      attachedToStock: !!x.attachedToStock, fields: x.fields, unsimulated: x.unsimulated || null })) };
   },
   /* what Wazuh's pre-decoding leaves for the decoders */
   preDecode(line){
