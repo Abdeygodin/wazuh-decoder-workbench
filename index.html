@@ -374,6 +374,13 @@
           <label>Model
             <input id="llmModel" list="llmModels" spellcheck="false" placeholder="fetch or type a name">
           </label>
+          <label>Edit mode
+            <select id="llmEditMode">
+              <option value="auto">Auto — patch first, XML if needed</option>
+              <option value="patch">JSON patch only (small models)</option>
+              <option value="full">Full XML rewrite (large models)</option>
+            </select>
+          </label>
         </div>
         <div class="row">
           <button class="ghost" id="llmFetch">Fetch models</button>
@@ -384,7 +391,7 @@
         <textarea id="aiTask" placeholder="e.g.: rename field3 to hit_count, extract the interface names too, and add a level 10 rule that fires on 5 denies from one srcip within 120 seconds"></textarea>
         <div class="row">
           <button class="primary" id="aiRun">Ask AI</button>
-          <span class="hint">The reply is verified against your sample lines by the built-in simulator</span>
+          <span class="hint">Patch mode: the model only says what to change — renames, dropped fields, rule levels, an alert on a value or on repeats — and the workbench writes the XML. Full rewrites are verified by the simulator.</span>
         </div>
         <div id="aiLog" class="ailog" hidden></div>
         <div class="note warn">Your log samples and request are sent to the endpoint above. With a local model (Ollama / LM Studio) nothing leaves your machine. The API key is stored only in this browser (localStorage). Local endpoints over http may require opening this page locally if your browser blocks it; Ollama also needs <code>OLLAMA_ORIGINS</code> to include this site.</div>
@@ -1126,7 +1133,7 @@ function parseCEF(msg){
 const state = {
   lines: [], firstLine:"", header:null, format:"plain",
   msg:"", tokens:[], jsonFields:[], cef:null,
-  analyzed:false, debugged:false
+  analyzed:false, debugged:false, ruleOverrides:{}
 };
 
 /* ---------- decoder.xml generation ---------- */
@@ -1431,6 +1438,17 @@ function ruleCondition(fieldName, val, d){
   return `<${tag} type="${d === "pcre2" ? "pcre2" : "osregex"}">${pattern}</${tag}>`;
 }
 
+/* "same value as the previous matches" for a frequency rule: static fields have their own tag (rules.c),
+   any other field goes through <same_field> */
+const SAME_TAGS = { srcip:"same_srcip", dstip:"same_dstip", srcport:"same_srcport", dstport:"same_dstport",
+  srcuser:"same_srcuser", dstuser:"same_user", user:"same_user", id:"same_id", url:"same_url",
+  protocol:"same_protocol", action:"same_action", data:"same_data", extra_data:"same_extra_data",
+  status:"same_status", system_name:"same_system_name" };
+function sameCondition(field){
+  const tag = SAME_TAGS[field.toLowerCase()];
+  return tag ? `<${tag} />` : `<same_field>${htmlEscape(field)}</same_field>`;
+}
+
 function buildRules(){
   const name = decoderName();
   const id = parseInt(document.getElementById("ruleId").value, 10) || 100100;
@@ -1449,19 +1467,29 @@ function buildRules(){
   ].join("\n"));
 
   const childInfo = { fired:false };
-  /* the first candidate that can be written as a condition (a MAC mistaken for srcip cannot) */
-  let fieldName = null, val = null, cond = null;
-  for (const f of ruleFieldCandidates()){
-    fieldName = state.format === "json" ? f.name : dedupeNames([f])[0].outName;
-    val = String(f.value);
+  const ov = state.ruleOverrides || {};
+  let fieldName = null, val = null, cond = null, refinedLevel = Math.min(15, parseInt(level,10)+4);
+  if (ov.alertOn){
+    /* set by an AI patch: "alert when <field> is <value>" */
+    fieldName = ov.alertOn.field;
+    val = ov.alertOn.value;
     cond = ruleCondition(fieldName, val, d);
-    if (cond) break;
+    if (ov.alertOn.level !== undefined) refinedLevel = ov.alertOn.level;
+  } else if (ov.alertOn !== null){
+    /* the first candidate that can be written as a condition (a MAC mistaken for srcip cannot) */
+    for (const f of ruleFieldCandidates()){
+      fieldName = state.format === "json" ? f.name : dedupeNames([f])[0].outName;
+      val = String(f.value);
+      cond = ruleCondition(fieldName, val, d);
+      if (cond) break;
+    }
   }
   if (cond){
     out.push("");
-    out.push("  <!-- Example: refine by a field value. Adapt the field/value/level to your case or delete. -->");
+    out.push(ov.alertOn ? "  <!-- Alert on a field value. -->"
+      : "  <!-- Example: refine by a field value. Adapt the field/value/level to your case or delete. -->");
     out.push([
-      `  <rule id="${id+1}" level="${Math.min(15, parseInt(level,10)+4)}">`,
+      `  <rule id="${id+1}" level="${refinedLevel}">`,
       `    <if_sid>${id}</if_sid>`,
       `    ${cond}`,
       `    <description>${name}: ${htmlEscape(fieldName)} = ${htmlEscape(val)}</description>`,
@@ -1470,9 +1498,23 @@ function buildRules(){
     ].join("\n"));
     childInfo.fired = true;
     childInfo.id = id + 1;
-    childInfo.level = Math.min(15, parseInt(level,10)+4);
+    childInfo.level = refinedLevel;
     childInfo.field = fieldName;
     childInfo.value = val;
+  }
+  if (ov.repeat){
+    /* "N times within T seconds": a frequency rule over the refined rule, or the base one */
+    const r = ov.repeat, over = cond ? id + 1 : id;
+    out.push("");
+    out.push("  <!-- Alert when it repeats. -->");
+    out.push([
+      `  <rule id="${id+2}" level="${r.level}" frequency="${r.times}" timeframe="${r.seconds}">`,
+      `    <if_matched_sid>${over}</if_matched_sid>`,
+      ...(r.same || []).map(f => `    ${sameCondition(f)}`),
+      `    <description>${name}: ${r.times} times in ${r.seconds}s${(r.same || []).length ? " from the same " + htmlEscape(r.same.join(", ")) : ""}</description>`,
+      `    <group>${htmlEscape(group)}</group>`,
+      `  </rule>`
+    ].join("\n"));
   }
   out.push("");
   out.push(`</group>`);
@@ -1649,7 +1691,8 @@ async function llmFetchModels(){
   return ((await r.json()).data || []).map(m => m.id).sort();
 }
 
-async function llmChat(prompt){
+/* opts.json: ask for a JSON object where the API has a switch for it (Ollama and OpenAI) */
+async function llmChat(prompt, opts = {}){
   if (llmCfg.provider === "anthropic"){
     const r = await fetch(llmBaseUrl() + "/v1/messages", { method:"POST",
       headers:{ "content-type":"application/json", "x-api-key":llmCfg.key,
@@ -1661,8 +1704,9 @@ async function llmChat(prompt){
   }
   const headers = { "content-type":"application/json" };
   if (llmCfg.key) headers["Authorization"] = "Bearer " + llmCfg.key;
-  const r = await fetch(llmV1() + "/chat/completions", { method:"POST", headers,
-    body: JSON.stringify({ model:llmCfg.model, temperature:0.2, messages:[{ role:"user", content:prompt }] }) });
+  const body = { model:llmCfg.model, temperature:0.2, messages:[{ role:"user", content:prompt }] };
+  if (opts.json && (llmCfg.provider === "ollama" || llmCfg.provider === "openai")) body.response_format = { type:"json_object" };
+  const r = await fetch(llmV1() + "/chat/completions", { method:"POST", headers, body: JSON.stringify(body) });
   if (!r.ok) throw new Error("HTTP " + r.status + " " + (await r.text()).slice(0,200));
   const j = await r.json();
   return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "";
@@ -2126,6 +2170,198 @@ function renderTestAI(){
   });
 }
 
+/* ---------- AI: JSON patch mode (issue #3) ----------
+   Small local models (~7B) cannot write valid decoder XML, but they can map a request to a few keys.
+   The model returns a patch; the patch is checked against the actual fields and applied here, by the
+   same generator as the manual edits — so the result is valid by construction. */
+
+const PATCH_KEYS = ["rename", "drop", "keep", "rule_level", "alert_on", "repeat", "decoder_name", "dialect", "unsupported"];
+
+/* every field the user can see, keyed by the name in <order> (deduplicated per variant, e.g. dstip_2) */
+function patchFields(){
+  const lists = state.variants && state.variants.length > 1 ? state.variants.map(v => v.tokens) : [state.tokens];
+  const byName = new Map();
+  lists.forEach(tokens => {
+    const names = state.format === "json" ? tokens.map(t => t.name) : dedupeNames(tokens).map(t => t.outName);
+    tokens.forEach((t, i) => {
+      const n = names[i];
+      if (!byName.has(n)) byName.set(n, { name: n, value: String(t.value), tokens: [] });
+      byName.get(n).tokens.push(t);
+    });
+  });
+  return byName;
+}
+
+function buildPatchPrompt(instruction, feedback){
+  const fields = [...patchFields().values()];
+  const list = fields.map(f => `- ${f.name} — ${JSON.stringify(f.value.slice(0, 60))} — ${f.tokens.some(t => t.include) ? "extracted" : "not extracted"}`).join("\n");
+  return `You edit a Wazuh decoder by returning a JSON patch. Reply with ONE JSON object and nothing else.
+
+FIELDS (name — example value — status):
+${list}
+
+NOW: decoder name "${decoderName()}", base rule level ${document.getElementById("ruleLevel").value}, regex dialect ${dialect()}.${state.format === "json" ? "\nThis is a JSON log: field names come from the JSON keys and cannot be renamed." : ""}
+
+PATCH KEYS — use only the ones the request needs:
+"rename": {"old_name": "new_name"}        rename fields (names from the list above)
+"drop": ["name"]                          stop extracting fields
+"keep": ["name"]                          extract fields again
+"rule_level": 0-16                        level of the base rule
+"alert_on": {"field": "name", "value": "exact value", "level": 0-16}      alert when a field has this value
+"repeat": {"times": 5, "seconds": 120, "same": ["srcip"], "level": 0-16}  alert when it happens N times within T seconds
+"decoder_name": "name"
+"dialect": "os" or "pcre2"
+If the request needs anything else — a new field, different parsing, other rule options — reply {"unsupported": "short reason"}.
+
+EXAMPLES
+request: rename field3 to hit_count and do not extract the timestamp
+{"rename": {"field3": "hit_count"}, "drop": ["timestamp"]}
+request: alert at level 10 when action is denied, and at level 12 after 5 denies from one srcip within 2 minutes
+{"alert_on": {"field": "action", "value": "denied", "level": 10}, "repeat": {"times": 5, "seconds": 120, "same": ["srcip"], "level": 12}}
+request: also extract the interface names
+{"unsupported": "needs a new field"}
+${feedback ? "\nYOUR PREVIOUS PATCH WAS REJECTED:\n" + feedback + "\nFix exactly this.\n" : ""}
+REQUEST: ${instruction}`;
+}
+
+/* check a patch against the current fields; returns { ops } to apply, { unsupported }, or { errors } */
+function validatePatch(patch){
+  const errors = [];
+  if (!patch || typeof patch !== "object" || Array.isArray(patch)) return { errors: ["the reply must be a JSON object"] };
+  if (typeof patch.unsupported === "string" && patch.unsupported.trim()) return { unsupported: patch.unsupported.trim() };
+  const unknown = Object.keys(patch).filter(k => !PATCH_KEYS.includes(k));
+  if (unknown.length) errors.push(`unknown key(s) ${unknown.map(k => `"${k}"`).join(", ")} — allowed: ${PATCH_KEYS.join(", ")}`);
+  const fields = patchFields();
+  const known = [...fields.keys()];
+  const resolve = n => fields.has(n) ? n : known.find(k => k.toLowerCase() === String(n).toLowerCase());
+  const level = (v, what) => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 16){ errors.push(`${what} must be a whole number from 0 to 16`); return undefined; }
+    return n;
+  };
+  const ops = { rename: [], drop: [], keep: [] };
+
+  /* field names after the renames in this patch */
+  const renamed = new Map();
+  if (patch.rename !== undefined){
+    if (state.format === "json") errors.push("JSON fields keep their JSON key names — remove \"rename\"");
+    else if (!patch.rename || typeof patch.rename !== "object" || Array.isArray(patch.rename)) errors.push('"rename" must be an object like {"old_name": "new_name"}');
+    else for (const [from, to] of Object.entries(patch.rename)){
+      const f = resolve(from);
+      if (!f){ errors.push(`"${from}" is not a field — fields: ${known.join(", ")}`); continue; }
+      if (typeof to !== "string" || !/^[A-Za-z_][A-Za-z0-9_.]{0,63}$/.test(to)){ errors.push(`"${to}" is not a valid field name (letters, digits, _ and .)`); continue; }
+      ops.rename.push([f, to]);
+      renamed.set(f, to);
+    }
+  }
+  const after = n => renamed.get(n) || n;
+  const nameList = (key) => {
+    const v = patch[key];
+    if (v === undefined) return;
+    if (!Array.isArray(v)){ errors.push(`"${key}" must be a list of field names`); return; }
+    v.forEach(n => {
+      const f = resolve(n) || [...renamed].find(([, to]) => to === n)?.[0];
+      if (!f) errors.push(`"${n}" in "${key}" is not a field — fields: ${known.join(", ")}`);
+      else ops[key].push(f);
+    });
+  };
+  nameList("drop");
+  nameList("keep");
+  /* which fields are extracted once the patch is applied */
+  const extracted = new Set(known.filter(n => {
+    if (ops.drop.includes(n)) return false;
+    return ops.keep.includes(n) || fields.get(n).tokens.some(t => t.include);
+  }).map(after));
+
+  ops.ruleLevel = level(patch.rule_level, '"rule_level"');
+  if (patch.alert_on === null || patch.alert_on === false) ops.alertOn = null;
+  else if (patch.alert_on !== undefined){
+    const a = patch.alert_on;
+    if (!a || typeof a !== "object") errors.push('"alert_on" must be {"field": "...", "value": "...", "level": N}');
+    else {
+      const field = resolve(a.field) ? after(resolve(a.field)) : a.field;
+      if (!extracted.has(field)) errors.push(`"alert_on" needs an extracted field — "${a.field}" is not one; extracted: ${[...extracted].join(", ")}`);
+      if (a.value === undefined || a.value === null || String(a.value) === "") errors.push('"alert_on" needs a "value"');
+      else if (extracted.has(field) && !ruleCondition(field, String(a.value), dialect()))
+        errors.push(`"${a.value}" cannot be matched on ${field} (an IP field needs an IP address)`);
+      ops.alertOn = { field, value: String(a.value), level: level(a.level, '"alert_on.level"') };
+    }
+  }
+  if (patch.repeat !== undefined && patch.repeat !== null){
+    const r = patch.repeat;
+    const times = Number(r && r.times), seconds = Number(r && r.seconds);
+    if (!Number.isInteger(times) || times < 2 || times > 9999) errors.push('"repeat.times" must be a whole number from 2 to 9999');
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86400) errors.push('"repeat.seconds" must be a whole number of seconds (1–86400)');
+    const same = (r && r.same) === undefined ? [] : Array.isArray(r.same) ? r.same : [r.same];
+    const sameNames = same.map(n => { const f = resolve(n) ? after(resolve(n)) : n;
+      if (!extracted.has(f)) errors.push(`"repeat.same" needs extracted fields — "${n}" is not one; extracted: ${[...extracted].join(", ")}`);
+      return f; });
+    const lv = level(r && r.level, '"repeat.level"');
+    ops.repeat = { times, seconds, same: sameNames, level: lv !== undefined ? lv : Math.min(15, parseInt(document.getElementById("ruleLevel").value, 10) + 6) };
+  } else if (patch.repeat === null) ops.repeat = null;
+  if (patch.decoder_name !== undefined){
+    if (typeof patch.decoder_name !== "string" || !/^[A-Za-z0-9_.-]{1,64}$/.test(patch.decoder_name)) errors.push('"decoder_name" may use letters, digits, - _ and . only');
+    else ops.decoderName = patch.decoder_name;
+  }
+  if (patch.dialect !== undefined){
+    const d = String(patch.dialect).toLowerCase();
+    if (/^os|osregex|os_regex$/.test(d)) ops.dialect = "os";
+    else if (/^pcre/.test(d)) ops.dialect = "pcre2";
+    else errors.push('"dialect" must be "os" or "pcre2"');
+  }
+  const nothing = !ops.rename.length && !ops.drop.length && !ops.keep.length && ops.ruleLevel === undefined &&
+    ops.alertOn === undefined && ops.repeat === undefined && !ops.decoderName && !ops.dialect;
+  if (!errors.length && nothing) errors.push("the patch changes nothing");
+  return errors.length ? { errors } : { ops };
+}
+
+/* apply checked ops through the same state as the manual edits; returns what changed, in words */
+function applyPatch(ops){
+  const fields = patchFields(), done = [];
+  ops.rename.forEach(([from, to]) => { fields.get(from).tokens.forEach(t => { t.name = to; }); done.push(`${from} → ${to}`); });
+  ops.drop.forEach(n => { fields.get(n).tokens.forEach(t => { t.include = false; }); done.push(`stop extracting ${n}`); });
+  ops.keep.forEach(n => { fields.get(n).tokens.forEach(t => { t.include = true; }); done.push(`extract ${n}`); });
+  if (ops.ruleLevel !== undefined){ document.getElementById("ruleLevel").value = String(ops.ruleLevel); done.push(`base rule level ${ops.ruleLevel}`); }
+  if (ops.decoderName){ document.getElementById("decName").value = ops.decoderName; done.push(`decoder name ${ops.decoderName}`); }
+  if (ops.dialect){ document.querySelector(`input[name="dialect"][value="${ops.dialect}"]`).checked = true; done.push(`dialect ${ops.dialect}`); }
+  state.ruleOverrides = state.ruleOverrides || {};
+  if (ops.alertOn === null){ state.ruleOverrides.alertOn = null; done.push("no field-value rule"); }
+  else if (ops.alertOn){ state.ruleOverrides.alertOn = ops.alertOn; done.push(`alert when ${ops.alertOn.field} = ${ops.alertOn.value}${ops.alertOn.level !== undefined ? ` (level ${ops.alertOn.level})` : ""}`); }
+  if (ops.repeat === null){ state.ruleOverrides.repeat = null; done.push("no frequency rule"); }
+  else if (ops.repeat){ const r = ops.repeat; state.ruleOverrides.repeat = r;
+    done.push(`alert after ${r.times} in ${r.seconds}s${r.same.length ? " with the same " + r.same.join(", ") : ""} (level ${r.level})`); }
+  renderFieldsTable();
+  regenerate();
+  return done;
+}
+
+/* "done" | "unsupported" | "failed" */
+async function runPatchAssist(instruction){
+  let feedback = "";
+  for (let attempt = 1; attempt <= 3; attempt++){
+    aiLog(`patch mode, attempt ${attempt}/3 — asking ${llmCfg.model}…`);
+    let raw;
+    try { raw = await llmChat(buildPatchPrompt(instruction, feedback), { json: true }); }
+    catch(e){ aiLog("request failed: " + e.message + (llmCfg.provider === "ollama" ? " — check that Ollama is running and OLLAMA_ORIGINS allows this site" : ""), "err"); return "failed"; }
+    let patch;
+    try { patch = JSON.parse(cleanLLMResponse(raw)); }
+    catch(e){ feedback = "The reply was not a JSON object."; aiLog("reply was not JSON — retrying", "warn"); continue; }
+    aiLog("patch: " + JSON.stringify(patch));
+    const v = validatePatch(patch);
+    if (v.unsupported){ aiLog(`the model says the patch keys cannot express this: ${v.unsupported}`, "warn"); return "unsupported"; }
+    if (v.errors){ feedback = v.errors.join("\n"); aiLog(`patch rejected (${v.errors.length}) — sending the reasons back`, "warn"); continue; }
+    const done = applyPatch(v.ops);
+    const decs = parseDecodersXml(lastDecoder.xml);
+    const ok = state.lines.filter(l => simulateGeneric(l, decs).matched).length;
+    aiLog("applied: " + done.join("; "), "ok");
+    aiLog(`generated by the workbench, not by the model — ${ok}/${state.lines.length} sample line(s) decoded; see the tabs on the right`, ok === state.lines.length ? "ok" : "warn");
+    return "done";
+  }
+  aiLog("gave up after 3 attempts — last problems:\n" + feedback, "err");
+  return "failed";
+}
+
 async function runAIAssist(){
   const instruction = document.getElementById("aiTask").value.trim();
   const status = document.getElementById("llmStatus");
@@ -2135,12 +2371,28 @@ async function runAIAssist(){
   const btn = document.getElementById("aiRun");
   btn.disabled = true;
   document.getElementById("aiLog").innerHTML = "";
-  let feedback = "";
   try {
+    const mode = llmCfg.editMode || "auto";
+    if (mode !== "full"){
+      const r = await runPatchAssist(instruction);
+      if (r === "unsupported" && mode === "patch") aiLog("to let the model rewrite the XML for this, pick “Auto” or “Full XML rewrite” in Edit mode", "warn");
+      if (r !== "unsupported" || mode === "patch") return;
+      aiLog("switching to a full rewrite (XML) — small models often fail at it", "warn");
+    }
+    await runFullAssist(instruction);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* the model writes the whole decoder and rules XML; everything is verified before it is shown */
+async function runFullAssist(instruction){
+  let feedback = "";
+  {
     for (let attempt = 1; attempt <= 3; attempt++){
       aiLog(`attempt ${attempt}/3 — asking ${llmCfg.model}…`);
       let raw;
-      try { raw = await llmChat(buildAIPrompt(instruction, feedback)); }
+      try { raw = await llmChat(buildAIPrompt(instruction, feedback), { json: true }); }
       catch(e){ aiLog("request failed: " + e.message + (llmCfg.provider === "ollama" ? " — check that Ollama is running and OLLAMA_ORIGINS allows this site" : ""), "err"); return; }
       let obj;
       try { obj = JSON.parse(cleanLLMResponse(raw)); }
@@ -2207,8 +2459,6 @@ async function runAIAssist(){
       return;
     }
     aiLog("gave up after 3 attempts — last problems:\n" + feedback, "err");
-  } finally {
-    btn.disabled = false;
   }
 }
 
@@ -2222,6 +2472,8 @@ function initLLM(){
   $("llmBase").value = llmCfg.base;
   $("llmKey").value = llmCfg.key;
   $("llmModel").value = llmCfg.model;
+  $("llmEditMode").value = llmCfg.editMode || "auto";
+  $("llmEditMode").addEventListener("change", () => { llmCfg.editMode = $("llmEditMode").value; saveLlmCfg(); });
 
   $("llmProvider").addEventListener("change", () => {
     llmCfg.provider = $("llmProvider").value;
@@ -2573,6 +2825,7 @@ function analyze(){
   hint.textContent = "The first line defines the template; every line is run through the test · Ctrl+Enter";
   hint.style.color = "";
   state.lines = lines;
+  state.ruleOverrides = {};
   state.firstLine = lines[0];
   state.header = parseHeader(lines[0]);
   state.msg = state.header ? state.header.msg : lines[0];
@@ -2820,6 +3073,19 @@ window.WDW = {
     const re = compileOsRegex(pattern, captures);
     const m = re.exec(str);
     return m ? { matched: true, rest: str.slice(m.end), caps: m.caps } : { matched: false };
+  },
+  /* apply an AI JSON patch to the decoder generated for these lines; no model involved */
+  patch(text, patchObj){
+    document.querySelector('input[name="mode"][value="generate"]').checked = true;
+    document.getElementById("ruleLevel").value = "3";
+    document.querySelector('input[name="dialect"][value="os"]').checked = true;
+    document.getElementById("logInput").value = text;
+    analyze();
+    const v = validatePatch(patchObj);
+    if (v.errors || v.unsupported) return v;
+    const changes = applyPatch(v.ops);
+    return { changes, decoderXml: lastDecoder.xml, rulesXml: lastRules.xml,
+      decoded: state.lines.filter(l => simulateGeneric(l, parseDecodersXml(lastDecoder.xml)).matched).length, lines: state.lines.length };
   },
   /* the debug view without the page: load check and per-line results */
   debug(xml, text, withStock){
