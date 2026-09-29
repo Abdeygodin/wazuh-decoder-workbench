@@ -1,0 +1,266 @@
+{
+ "note": "AI JSON patches (issue #3). The first twelve are the patches qwen2.5:7b returned in the evaluation; the rest must be refused with a reason. No model is called here.",
+ "logs": {
+  "sshd": "Jun 24 11:24:16 srv01 sshd[2742]: Failed password for invalid user admin from 187.172.181.13 port 40161 ssh2\nJun 24 11:24:20 srv01 sshd[2742]: Failed password for invalid user oracle from 187.172.181.13 port 40213 ssh2\nJun 24 11:25:02 srv01 sshd[2811]: Accepted password for deploy from 10.0.0.5 port 51102 ssh2\nJun 24 11:26:11 srv01 sshd[2903]: Connection closed by 10.0.0.9 port 40404 [preauth]",
+  "fortigate": "date=2026-07-11 time=10:21:04 devname=\"FG100E\" logid=\"0000000013\" type=\"traffic\" subtype=\"forward\" level=\"notice\" srcip=10.1.10.21 srcport=51234 dstip=8.8.8.8 dstport=53 proto=17 action=\"accept\"",
+  "app": "2026-07-11 10:21:04 WARN payment-gw: transaction declined for user a.ivanov from 10.20.30.7 amount=1500.00",
+  "ftd": "%FTD-4-106103: access-list VPN-SSL-Users denied tcp for user 'i.ivanov' outside/198.51.100.23(58867) -> srv/10.20.30.40(49670) hit-cnt 1 first hit [0xbb0817b6, 0x0]",
+  "json": "{\"timestamp\":\"2026-07-11T10:21:04Z\",\"app\":\"payments-api\",\"event\":\"login_failed\",\"user\":\"a.ivanov\",\"src_ip\":\"10.20.30.7\",\"attempts\":4}"
+ },
+ "cases": [
+  {
+   "log": "sshd",
+   "request": "rename srcport to source_port",
+   "patch": {
+    "rename": {
+     "srcport": "source_port"
+    }
+   },
+   "order": [
+    "source_port"
+   ],
+   "not_order": [
+    "srcport"
+   ]
+  },
+  {
+   "log": "sshd",
+   "request": "stop extracting the action field",
+   "patch": {
+    "drop": [
+     "action"
+    ]
+   },
+   "not_order": [
+    "action"
+   ]
+  },
+  {
+   "log": "sshd",
+   "request": "set the base rule level to 5",
+   "patch": {
+    "rule_level": 5
+   },
+   "rules": [
+    "level=\"5\">\n    <decoded_as>"
+   ]
+  },
+  {
+   "log": "sshd",
+   "request": "raise an alert at level 10 when the user is root",
+   "patch": {
+    "alert_on": {
+     "field": "dstuser",
+     "value": "root",
+     "level": 10
+    }
+   },
+   "rules": [
+    "level=\"10\"",
+    "<user type=\"osregex\">^root$</user>"
+   ]
+  },
+  {
+   "log": "sshd",
+   "request": "alert at level 12 when the same source IP fails 5 times within 2 minutes",
+   "patch": {
+    "repeat": {
+     "times": 5,
+     "seconds": 120,
+     "same": [
+      "srcip"
+     ],
+     "level": 12
+    }
+   },
+   "rules": [
+    "level=\"12\" frequency=\"5\" timeframe=\"120\"",
+    "<same_srcip />"
+   ]
+  },
+  {
+   "log": "fortigate",
+   "request": "rename devname to device_name",
+   "patch": {
+    "rename": {
+     "devname": "device_name"
+    }
+   },
+   "order": [
+    "device_name"
+   ]
+  },
+  {
+   "log": "fortigate",
+   "request": "alert at level 8 when action is accept",
+   "patch": {
+    "alert_on": {
+     "field": "action",
+     "value": "accept",
+     "level": 8
+    }
+   },
+   "rules": [
+    "level=\"8\"",
+    "<action>accept</action>"
+   ]
+  },
+  {
+   "log": "app",
+   "request": "rename field1 to amount",
+   "patch": {
+    "rename": {
+     "field1": "amount"
+    }
+   },
+   "order": [
+    "amount"
+   ],
+   "not_order": [
+    "field1"
+   ]
+  },
+  {
+   "log": "app",
+   "request": "call the decoder payment-gateway and use PCRE2",
+   "patch": {
+    "decoder_name": "payment-gateway",
+    "dialect": "pcre2"
+   },
+   "decoder": [
+    "<decoder name=\"payment-gateway\">",
+    "type=\"pcre2\""
+   ]
+  },
+  {
+   "log": "app",
+   "request": "переименуй field1 в amount и подними уровень базового правила до 4",
+   "patch": {
+    "rename": {
+     "field1": "amount"
+    },
+    "rule_level": 4
+   },
+   "order": [
+    "amount"
+   ],
+   "rules": [
+    "level=\"4\">\n    <decoded_as>"
+   ]
+  },
+  {
+   "log": "ftd",
+   "request": "rename field3 to hit_count and drop the protocol field",
+   "patch": {
+    "rename": {
+     "field3": "hit_count"
+    },
+    "drop": [
+     "protocol"
+    ]
+   },
+   "order": [
+    "hit_count"
+   ],
+   "not_order": [
+    "protocol"
+   ]
+  },
+  {
+   "log": "sshd",
+   "request": "also extract the ssh protocol version (ssh2) as a new field",
+   "patch": {
+    "unsupported": "needs a new field"
+   },
+   "unsupported": true
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) unknown field",
+   "patch": {
+    "rename": {
+     "nosuch": "x"
+    }
+   },
+   "error": "is not a field"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) unknown key",
+   "patch": {
+    "colour": "red"
+   },
+   "error": "unknown key"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) level out of range",
+   "patch": {
+    "rule_level": 99
+   },
+   "error": "from 0 to 16"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) a user name on an IP field",
+   "patch": {
+    "alert_on": {
+     "field": "srcip",
+     "value": "root"
+    }
+   },
+   "error": "IP field"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) alert on a dropped field",
+   "patch": {
+    "drop": [
+     "action"
+    ],
+    "alert_on": {
+     "field": "action",
+     "value": "Failed"
+    }
+   },
+   "error": "needs an extracted field"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) repeat once",
+   "patch": {
+    "repeat": {
+     "times": 1,
+     "seconds": 60
+    }
+   },
+   "error": "repeat.times"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) bad new name",
+   "patch": {
+    "rename": {
+     "srcport": "source port"
+    }
+   },
+   "error": "not a valid field name"
+  },
+  {
+   "log": "json",
+   "request": "(invalid) rename a JSON key",
+   "patch": {
+    "rename": {
+     "user": "account"
+    }
+   },
+   "error": "JSON key names"
+  },
+  {
+   "log": "sshd",
+   "request": "(invalid) empty patch",
+   "patch": {},
+   "error": "changes nothing"
+  }
+ ]
+}

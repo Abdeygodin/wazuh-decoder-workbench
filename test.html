@@ -133,6 +133,14 @@
       <thead><tr><th>Line</th><th>Result</th></tr></thead>
       <tbody id="preResults"></tbody>
     </table>
+    <h2>AI JSON patches</h2>
+    <p>Patches from <b>samples/ai-patch-cases.json</b> — the ones a 7B model returned in the evaluation, and
+      invalid ones that must be refused — applied by the workbench. No model is called.</p>
+    <div id="patchSummary" class="summary">Loading…</div>
+    <table>
+      <thead><tr><th>Request · patch</th><th>Result</th></tr></thead>
+      <tbody id="patchResults"></tbody>
+    </table>
     <h2>Decoder files: does Wazuh load them?</h2>
     <p>Small decoder files from <b>samples/decoder-load-cases.json</b> and whether a real wazuh-analysisd accepted them,
       against the load check of the “Test my decoders” mode.</p>
@@ -279,10 +287,41 @@
       return { checks: doc.cases.length, passed };
     }
 
-    function render(api, samples, preCases, osCases, loadCases) {
+    function renderPatchCases(api, doc) {
+      const orders = (xml) => (xml.match(/<order>([^<]*)<\/order>/g) || []).join(" ");
+      let passed = 0;
+      const rows = doc.cases.map((c) => {
+        const r = api.patch(doc.logs[c.log], c.patch);
+        const problems = [];
+        if (c.unsupported) { if (!r.unsupported) problems.push("expected the patch to be read as unsupported"); }
+        else if (c.error) {
+          if (!r.errors) problems.push(`expected a refusal containing "${c.error}"`);
+          else if (!r.errors.some((e) => e.includes(c.error))) problems.push(`refused, but not with "${c.error}": ${r.errors.join("; ")}`);
+        } else if (r.errors || r.unsupported) problems.push("refused: " + (r.errors || [r.unsupported]).join("; "));
+        else {
+          (c.order || []).forEach((n) => { if (!new RegExp(`\\b${n}\\b`).test(orders(r.decoderXml))) problems.push(`<order> lacks ${n}`); });
+          (c.not_order || []).forEach((n) => { if (new RegExp(`\\b${n}\\b`).test(orders(r.decoderXml))) problems.push(`<order> still has ${n}`); });
+          (c.rules || []).forEach((t) => { if (!r.rulesXml.includes(t)) problems.push(`rules.xml lacks ${t}`); });
+          (c.decoder || []).forEach((t) => { if (!r.decoderXml.includes(t)) problems.push(`decoder.xml lacks ${t}`); });
+          if (r.decoded !== r.lines) problems.push(`only ${r.decoded}/${r.lines} lines decoded after the patch`);
+        }
+        if (!problems.length) passed += 1;
+        const got = r.errors ? "refused: " + r.errors.join("; ") : r.unsupported ? "unsupported: " + r.unsupported : "applied: " + r.changes.join("; ");
+        return `<tr><td>${escapeHtml(c.request)}<br><code>${escapeHtml(JSON.stringify(c.patch))}</code></td>` +
+          `<td class="${problems.length ? "fail" : "ok"}">${problems.length ? problems.map(escapeHtml).join("<br>") : "PASS"}<br><span class="gap">${escapeHtml(got)}</span></td></tr>`;
+      });
+      document.getElementById("patchResults").innerHTML = rows.join("");
+      const summary = document.getElementById("patchSummary");
+      summary.textContent = `${passed}/${doc.cases.length} patches handled as expected`;
+      summary.className = `summary ${passed === doc.cases.length ? "ok" : "fail"}`;
+      return { checks: doc.cases.length, passed };
+    }
+
+    function render(api, samples, preCases, osCases, loadCases, patchCases) {
       const pre = renderPreDecoding(api, preCases);
       const os = renderOsRegex(api, osCases);
       const load = renderLoadCases(api, loadCases);
+      const patch = renderPatchCases(api, patchCases);
       let checks = 0, passed = 0, gapCount = 0, xpassCount = 0;
       const rows = samples.map((sample) => {
         const cells = DIALECTS.map((dialect) => {
@@ -301,7 +340,7 @@
         </tr>`;
       }).join("");
       document.getElementById("results").innerHTML = rows;
-      const ok = passed === checks && pre.passed === pre.checks && os.passed === os.checks && load.passed === load.checks;
+      const ok = passed === checks && pre.passed === pre.checks && os.passed === os.checks && load.passed === load.checks && patch.passed === patch.checks;
       const summary = document.getElementById("summary");
       summary.textContent = `${passed}/${checks} checks passed (${samples.length} samples × ${DIALECTS.length} dialects)` +
         ` · ${gapCount} known gaps` + (xpassCount ? ` · ${xpassCount} gaps now work — update the samples` : "");
@@ -310,7 +349,7 @@
       document.title = (ok ? "PASS" : "FAIL") + " · Wazuh Decoder Workbench Samples";
       window.regressionResult = { ok, checks, passed, gaps: gapCount, xpasses: xpassCount,
         preDecoding: { checks: pre.checks, passed: pre.passed }, osRegex: { checks: os.checks, passed: os.passed },
-        decoderLoad: { checks: load.checks, passed: load.passed } };
+        decoderLoad: { checks: load.checks, passed: load.passed }, aiPatch: { checks: patch.checks, passed: patch.passed } };
     }
 
     function escapeHtml(value) {
@@ -343,8 +382,10 @@
                  fetch("samples/log-samples.json").then((response) => response.json()),
                  fetch("samples/predecoder-cases.json").then((response) => response.json()),
                  fetch("samples/os-regex-cases.json").then((response) => response.json()),
-                 fetch("samples/decoder-load-cases.json").then((response) => response.json())])
-      .then(([api, samples, preCases, osCases, loadCases]) => render(api, samples, preCases, osCases, loadCases))
+                 fetch("samples/decoder-load-cases.json").then((response) => response.json()),
+                 fetch("samples/ai-patch-cases.json").then((response) => response.json())])
+      .then(([api, samples, preCases, osCases, loadCases, patchCases]) =>
+        render(api, samples, preCases, osCases, loadCases, patchCases))
       .catch((error) => fail(`Could not run the samples: ${error.message}`));
   </script>
 </body>
